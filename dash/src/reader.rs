@@ -51,11 +51,17 @@ pub struct ProjectData {
     pub epoch: Option<String>,
     pub needs_human: Option<NeedsHuman>,
     pub git_log: Vec<String>,
+    pub service_active: bool,
+    pub last_commit_age: Option<String>,
 }
 
 impl ProjectData {
     pub fn load(workflow_dir: &Path) -> Self {
         let git_log = load_git_log(workflow_dir);
+        let project_dir = workflow_dir.parent().unwrap_or(workflow_dir);
+        let project_name = project_dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+        let service_active = check_service_active(project_name);
+        let last_commit_age = get_last_commit_age(project_dir);
         Self {
             status: read_and_parse(workflow_dir, "status.md", parse_status).ok(),
             tasks: read_and_parse(workflow_dir, "tasks.md", parse_tasks).ok(),
@@ -63,7 +69,30 @@ impl ProjectData {
             epoch: read_and_parse(workflow_dir, "guidelines.md", parse_current_epoch).ok().flatten(),
             needs_human: read_and_parse(workflow_dir, "needs-human.md", parse_needs_human).ok(),
             git_log,
+            service_active,
+            last_commit_age,
         }
+    }
+}
+
+fn check_service_active(project_name: &str) -> bool {
+    std::process::Command::new("systemctl")
+        .args(["--user", "is-active", &format!("kiro-workflow@{}", project_name)])
+        .output()
+        .ok()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn get_last_commit_age(project_dir: &Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["-C", &project_dir.to_string_lossy(), "log", "-1", "--format=%cr"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
     }
 }
 

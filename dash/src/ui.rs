@@ -151,12 +151,21 @@ fn draw_tabs(f: &mut Frame, app: &App, area: Rect) {
     let titles: Vec<Line> = (0..app.project_paths.len())
         .map(|i| {
             let name = app.project_name(i);
-            let alert = app.data[i].needs_human.as_ref()
+            let data = &app.data[i];
+            let alert = data.needs_human.as_ref()
                 .map(|n| needs_human_first_item(&n.content).is_some()).unwrap_or(false);
+            let dot = if data.service_active { "●" } else { "○" };
+            let dot_color = if data.service_active { Color::Green } else { Color::Red };
             if alert {
-                Line::from(Span::styled(format!(" ⚠ {} ", name), Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)))
+                Line::from(vec![
+                    Span::styled(dot, Style::default().fg(dot_color)),
+                    Span::styled(format!(" ⚠ {} ", name), Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                ])
             } else {
-                Line::from(format!(" {} ", name))
+                Line::from(vec![
+                    Span::styled(dot, Style::default().fg(dot_color)),
+                    Span::raw(format!(" {} ", name)),
+                ])
             }
         })
         .collect();
@@ -354,7 +363,12 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_git(f: &mut Frame, app: &App, area: Rect) {
     let data = app.current();
-    let block = titled_block(" Git ");
+    let title = if let Some(ref age) = data.last_commit_age {
+        format!(" Git ({}) ", age)
+    } else {
+        " Git ".to_string()
+    };
+    let block = titled_block(&title);
     let lines: Vec<Line> = if data.git_log.is_empty() {
         vec![Line::from(Span::styled("no commits", DIM))]
     } else {
@@ -411,7 +425,7 @@ fn style_msg_line(l: &str) -> Line<'_> {
 
 fn style_for_state(state: &str) -> Style {
     match state {
-        "working" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        "active" | "working" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         "blocked" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         "idle" => Style::default().fg(Color::Yellow),
         "spec-written" => Style::default().fg(Color::Magenta),

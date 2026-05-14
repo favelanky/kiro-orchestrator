@@ -40,6 +40,15 @@ FOR EACH TASK:
 7. Append to messages.md: **[worker TIMESTAMP]** what you did
 8. IMMEDIATELY take next task from Queue and repeat
 
+STATUS.MD FORMAT (use exactly this):
+# Worker Status
+
+**State:** active (or idle/blocked)
+**Last updated:** YYYY-MM-DDTHH:MM+TZ
+**Current task:** T<N>: title
+**Progress:** brief note
+**Blockers:** none (or description)
+
 STOP CONDITIONS (only these):
 - Queue is empty
 - Task needs spec approval
