@@ -119,7 +119,8 @@ fn main() -> Result<()> {
                         KeyCode::Char('c') => {
                             let name = app.project_name(app.active_project);
                             let lead_home = format!("{}/.kiro-workflow-lead-{}", std::env::var("HOME").unwrap_or_default(), name);
-                            open_lead_session(&mut terminal, &lead_home)?;
+                            let wf_dir = &app.project_paths[app.active_project];
+                            open_lead_session(&mut terminal, &lead_home, wf_dir)?;
                             app.reload();
                         }
                         KeyCode::Char('r') => {
@@ -178,14 +179,28 @@ fn open_editor(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, path:
     Ok(())
 }
 
-fn open_lead_session(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, lead_home: &str) -> Result<()> {
+fn open_lead_session(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, lead_home: &str, wf_dir: &Path) -> Result<()> {
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
     let _ = std::fs::create_dir_all(lead_home);
-    Command::new("kiro-cli")
-        .args(["chat", "--resume", "--trust-all-tools"])
-        .current_dir(lead_home)
-        .status()?;
+
+    let session_file = wf_dir.join(".lead-session-id");
+    let session_id = std::fs::read_to_string(&session_file).ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let _status = if let Some(ref id) = session_id {
+        Command::new("kiro-cli")
+            .args(["chat", "--trust-all-tools", "--resume-id", id])
+            .current_dir(lead_home)
+            .status()?
+    } else {
+        Command::new("kiro-cli")
+            .args(["chat", "--trust-all-tools", "--resume"])
+            .current_dir(lead_home)
+            .status()?
+    };
+
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;
     terminal.clear()?;
