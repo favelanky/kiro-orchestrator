@@ -1,0 +1,426 @@
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, Gauge, Paragraph, Tabs, Wrap},
+    Frame,
+};
+
+use crate::app::{App, ViewMode};
+
+const BORDER: BorderType = BorderType::Rounded;
+const TITLE_STYLE: Style = Style::new().fg(Color::White).add_modifier(Modifier::BOLD);
+const DIM: Style = Style::new().fg(Color::DarkGray);
+
+fn titled_block(title: &str) -> Block<'_> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BORDER)
+        .title(title)
+        .title_style(TITLE_STYLE)
+}
+
+pub fn draw(f: &mut Frame, app: &App) {
+    match app.view_mode {
+        ViewMode::Dashboard | ViewMode::InputAnswer => draw_dashboard(f, app),
+        ViewMode::LogView => draw_log_view(f, app),
+        ViewMode::MessageScroll => draw_msg_scroll(f, app),
+    }
+}
+
+fn draw_msg_scroll(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .split(area);
+
+    let block = titled_block(" Messages ");
+    let inner = block.inner(chunks[0]);
+    let visible_height = inner.height as usize;
+
+    let data = app.current();
+    let all_lines: Vec<&String> = data.messages.as_ref()
+        .map(|m| m.lines.iter().filter(|l| !l.trim().is_empty()).collect())
+        .unwrap_or_default();
+
+    let start = app.msg_scroll.saturating_sub(visible_height.saturating_sub(1));
+    let end = (start + visible_height).min(all_lines.len());
+
+    let lines: Vec<Line> = all_lines[start..end].iter()
+        .map(|l| style_msg_line(l))
+        .collect();
+
+    f.render_widget(Paragraph::new(lines).block(block), chunks[0]);
+
+    let footer_block = Block::default().borders(Borders::ALL).border_type(BORDER);
+    let spans = vec![
+        Span::styled("q", Style::default().fg(Color::Yellow)), Span::raw("/"),
+        Span::styled("m", Style::default().fg(Color::Yellow)), Span::raw("/"),
+        Span::styled("Esc", Style::default().fg(Color::Yellow)), Span::raw(":close "),
+        Span::styled("↑/k", Style::default().fg(Color::Yellow)), Span::raw(":up "),
+        Span::styled("↓/j", Style::default().fg(Color::Yellow)), Span::raw(":down"),
+    ];
+    f.render_widget(Paragraph::new(Line::from(spans)).block(footer_block), chunks[1]);
+}
+
+fn draw_log_view(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .split(area);
+
+    let block = titled_block(" Logs ");
+    let inner = block.inner(chunks[0]);
+    let visible_height = inner.height as usize;
+
+    let start = app.log_scroll.saturating_sub(visible_height.saturating_sub(1));
+    let end = (start + visible_height).min(app.log_lines.len());
+
+    let lines: Vec<Line> = app.log_lines[start..end].iter()
+        .map(|l| {
+            if l.starts_with("===") {
+                Line::from(Span::styled(l.as_str(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+            } else {
+                Line::from(l.as_str())
+            }
+        })
+        .collect();
+
+    f.render_widget(Paragraph::new(lines).block(block), chunks[0]);
+
+    let footer_block = Block::default().borders(Borders::ALL).border_type(BORDER);
+    let spans = vec![
+        Span::styled("q", Style::default().fg(Color::Yellow)), Span::raw("/"),
+        Span::styled("l", Style::default().fg(Color::Yellow)), Span::raw("/"),
+        Span::styled("Esc", Style::default().fg(Color::Yellow)), Span::raw(":close "),
+        Span::styled("↑/k", Style::default().fg(Color::Yellow)), Span::raw(":up "),
+        Span::styled("↓/j", Style::default().fg(Color::Yellow)), Span::raw(":down"),
+    ];
+    f.render_widget(Paragraph::new(Line::from(spans)).block(footer_block), chunks[1]);
+}
+
+fn draw_dashboard(f: &mut Frame, app: &App) {
+    let data = app.current();
+    let has_alert = data.needs_human.as_ref()
+        .map(|n| needs_human_first_item(&n.content).is_some()).unwrap_or(false);
+    let is_blocked = data.status.as_ref()
+        .map(|s| s.state == "blocked").unwrap_or(false);
+    let show_banner = has_alert || is_blocked;
+
+    let mut constraints = vec![Constraint::Length(3)]; // tabs
+    if show_banner { constraints.push(Constraint::Length(3)); }
+    constraints.extend([
+        Constraint::Length(3),  // phase
+        Constraint::Length(7),  // worker
+        Constraint::Min(6),    // middle
+        Constraint::Length(3), // footer
+    ]);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(f.area());
+
+    let mut i = 0;
+    draw_tabs(f, app, chunks[i]); i += 1;
+    if show_banner { draw_banner(f, app, chunks[i], has_alert); i += 1; }
+    draw_phase(f, app, chunks[i]); i += 1;
+    draw_worker(f, app, chunks[i]); i += 1;
+    draw_middle(f, app, chunks[i]); i += 1;
+    if app.view_mode == ViewMode::InputAnswer {
+        draw_input_bar(f, app, chunks[i]);
+    } else {
+        draw_footer(f, chunks[i]);
+    }
+}
+
+fn draw_input_bar(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BORDER)
+        .title(" Answer (Enter: send, Esc: cancel) ")
+        .title_style(TITLE_STYLE)
+        .border_style(Style::default().fg(Color::Yellow));
+    let text = format!("▸ {}", app.input_buf);
+    f.render_widget(Paragraph::new(text).block(block), area);
+}
+
+fn draw_tabs(f: &mut Frame, app: &App, area: Rect) {
+    let titles: Vec<Line> = (0..app.project_paths.len())
+        .map(|i| {
+            let name = app.project_name(i);
+            let alert = app.data[i].needs_human.as_ref()
+                .map(|n| needs_human_first_item(&n.content).is_some()).unwrap_or(false);
+            if alert {
+                Line::from(Span::styled(format!(" ⚠ {} ", name), Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)))
+            } else {
+                Line::from(format!(" {} ", name))
+            }
+        })
+        .collect();
+
+    let active_name = app.project_name(app.active_project);
+    let title = format!(" kiro-dash › {} ", active_name);
+
+    let tabs = Tabs::new(titles)
+        .block(Block::default().borders(Borders::ALL).border_type(BORDER).title(title).title_style(TITLE_STYLE))
+        .select(app.active_project)
+        .style(DIM)
+        .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .divider("│");
+    f.render_widget(tabs, area);
+}
+
+fn draw_banner(f: &mut Frame, app: &App, area: Rect, is_needs_human: bool) {
+    let data = app.current();
+    let (msg, fg, bg) = if is_needs_human {
+        let content = data.needs_human.as_ref().map(|n| n.content.as_str()).unwrap_or("");
+        let first = needs_human_first_item(content).unwrap_or("Attention needed");
+        // Truncate long messages
+        let display = if first.len() > 120 { &first[..120] } else { first };
+        (format!(" ⚠  NEEDS HUMAN: {}", display), Color::White, Color::Red)
+    } else {
+        (" ⚠  BLOCKED".to_string(), Color::Black, Color::Yellow)
+    };
+    let style = Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BORDER)
+        .border_style(Style::default().fg(bg));
+    f.render_widget(Paragraph::new(msg).style(style).block(block), area);
+}
+
+/// Extract the first actionable item from needs-human.md, skipping headers/comments
+fn needs_human_first_item(content: &str) -> Option<&str> {
+    let mut in_open = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "## Open" {
+            in_open = true;
+            continue;
+        }
+        if trimmed.starts_with("## ") && in_open {
+            break; // hit next section
+        }
+        if in_open && trimmed.starts_with("- ") {
+            // Strip leading "- **timestamp** — " pattern
+            let item = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+            return Some(item);
+        }
+    }
+    // Fallback: find any non-header, non-empty, non-comment line
+    content.lines()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("<!--"))
+}
+
+fn draw_phase(f: &mut Frame, app: &App, area: Rect) {
+    let data = app.current();
+    let text = data.epoch.as_deref().unwrap_or("—");
+    let block = titled_block(" Epoch ");
+    f.render_widget(Paragraph::new(text).block(block).wrap(Wrap { trim: true }), area);
+}
+
+fn draw_worker(f: &mut Frame, app: &App, area: Rect) {
+    let data = app.current();
+    let block = titled_block(" Worker Status ");
+    let lines = if let Some(ref s) = data.status {
+        let elapsed = elapsed_display(&s.last_updated);
+        vec![
+            Line::from(vec![
+                Span::styled("State: ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(&s.state, style_for_state(&s.state)),
+                Span::styled(format!("  ({})", elapsed), DIM),
+            ]),
+            Line::from(vec![
+                Span::styled("Task: ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(&s.current_task),
+            ]),
+            Line::from(vec![
+                Span::styled("Progress: ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(&s.progress),
+            ]),
+            Line::from(vec![
+                Span::styled("Blockers: ", Style::default().add_modifier(Modifier::BOLD)),
+                if s.blockers == "none" {
+                    Span::styled(&s.blockers, DIM)
+                } else {
+                    Span::styled(&s.blockers, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+                },
+            ]),
+            Line::from(vec![
+                Span::styled("Updated: ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(&s.last_updated, DIM),
+            ]),
+        ]
+    } else {
+        vec![Line::from(Span::styled("No status data", DIM))]
+    };
+    f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn draw_middle(f: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(30),
+            Constraint::Percentage(45),
+            Constraint::Percentage(25),
+        ])
+        .split(area);
+
+    draw_queue(f, app, chunks[0]);
+    draw_messages(f, app, chunks[1]);
+    draw_git(f, app, chunks[2]);
+}
+
+fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
+    let data = app.current();
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(1)])
+        .split(area);
+
+    // Progress gauge
+    if let Some(ref tasks) = data.tasks {
+        let total = tasks.current.len() + tasks.queue.len() + tasks.done.len();
+        let done = tasks.done.len();
+        let blocked = tasks.blocked_count();
+        let ratio = if total > 0 { done as f64 / total as f64 } else { 0.0 };
+        let label = if blocked > 0 {
+            format!("{}/{} done | {} blocked", done, total, blocked)
+        } else {
+            format!("{}/{} done", done, total)
+        };
+        let gauge = Gauge::default()
+            .block(Block::default().borders(Borders::ALL).border_type(BORDER).title(" Progress ").title_style(TITLE_STYLE))
+            .gauge_style(Style::default().fg(Color::Green).bg(Color::DarkGray))
+            .ratio(ratio)
+            .label(label);
+        f.render_widget(gauge, chunks[0]);
+    } else {
+        f.render_widget(Paragraph::new("—").block(titled_block(" Progress ")), chunks[0]);
+    }
+
+    // Task list
+    let block = titled_block(" Tasks ");
+    let mut lines = Vec::new();
+
+    if let Some(ref tasks) = data.tasks {
+        if !tasks.current.is_empty() {
+            lines.push(Line::from(Span::styled("▶ Current:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+            for t in &tasks.current {
+                let style = if t.blocked { Style::default().fg(Color::Red) } else { Style::default() };
+                lines.push(Line::from(Span::styled(format!("  {}", t.title), style)));
+            }
+        }
+        if !tasks.queue.is_empty() {
+            lines.push(Line::from(Span::styled("◦ Queue:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
+            for t in &tasks.queue {
+                let style = if t.blocked { Style::default().fg(Color::Red) } else { DIM };
+                lines.push(Line::from(Span::styled(format!("  {}", t.title), style)));
+            }
+        }
+        if !tasks.done.is_empty() {
+            lines.push(Line::from(Span::styled("✓ Done:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+            for t in &tasks.done {
+                lines.push(Line::from(Span::styled(format!("  {}", t.title), DIM)));
+            }
+        }
+    } else {
+        lines.push(Line::from(Span::styled("No task data", DIM)));
+    }
+
+    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: true }), chunks[1]);
+}
+
+fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
+    let data = app.current();
+    let block = titled_block(" Messages ");
+    let lines: Vec<Line> = data.messages.as_ref()
+        .map(|m| {
+            m.lines.iter()
+                .filter(|l| !l.trim().is_empty())
+                .rev().take(20).collect::<Vec<_>>().into_iter().rev()
+                .map(|l| style_msg_line(l))
+                .collect()
+        })
+        .unwrap_or_default();
+    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: true }), area);
+}
+
+fn draw_git(f: &mut Frame, app: &App, area: Rect) {
+    let data = app.current();
+    let block = titled_block(" Git ");
+    let lines: Vec<Line> = if data.git_log.is_empty() {
+        vec![Line::from(Span::styled("no commits", DIM))]
+    } else {
+        data.git_log.iter()
+            .map(|l| {
+                // Color the hash portion
+                let parts: Vec<&str> = l.splitn(2, ' ').collect();
+                if parts.len() == 2 {
+                    Line::from(vec![
+                        Span::styled(parts[0], Style::default().fg(Color::Yellow)),
+                        Span::raw(" "),
+                        Span::raw(parts[1]),
+                    ])
+                } else {
+                    Line::from(l.as_str())
+                }
+            })
+            .collect()
+    };
+    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: true }), area);
+}
+
+fn draw_footer(f: &mut Frame, area: Rect) {
+    let block = Block::default().borders(Borders::ALL).border_type(BORDER);
+    let spans = vec![
+        Span::styled("q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":quit "),
+        Span::styled("c", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":lead "),
+        Span::styled("i", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":input "),
+        Span::styled("a", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":answer "),
+        Span::styled("t", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":tasks "),
+        Span::styled("g", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":guide "),
+        Span::styled("l", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":logs "),
+        Span::styled("m", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":msgs "),
+        Span::styled("r", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":restart "),
+        Span::styled("s", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":stop "),
+        Span::styled("←/→", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":switch"),
+    ];
+    f.render_widget(Paragraph::new(Line::from(spans)).block(block), area);
+}
+
+fn style_msg_line(l: &str) -> Line<'_> {
+    if l.contains("[lead") {
+        Line::from(Span::styled(l, Style::default().fg(Color::Blue)))
+    } else if l.contains("[worker") {
+        Line::from(Span::styled(l, Style::default().fg(Color::Green)))
+    } else if l.contains("REJECTED") || l.contains("FAIL") {
+        Line::from(Span::styled(l, Style::default().fg(Color::Red)))
+    } else if l.contains("Approved") || l.contains("PASSED") {
+        Line::from(Span::styled(l, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)))
+    } else {
+        Line::from(Span::styled(l, DIM))
+    }
+}
+
+fn style_for_state(state: &str) -> Style {
+    match state {
+        "working" => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        "blocked" => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        "idle" => Style::default().fg(Color::Yellow),
+        "spec-written" => Style::default().fg(Color::Magenta),
+        _ => Style::default(),
+    }
+}
+
+fn elapsed_display(timestamp: &str) -> String {
+    timestamp.split('T').nth(1)
+        .map(|t| format!("since {}", &t[..5.min(t.len())]))
+        .unwrap_or_else(|| "?".to_string())
+}

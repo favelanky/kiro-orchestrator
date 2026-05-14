@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Lead: reviews code, rejects bad work, manages queue, generates tasks
+set -euo pipefail
+
+PROJECT="{{PROJECT_PATH}}"
+WF="$PROJECT/.kiro-workflow"
+LEAD_HOME="$HOME/.kiro-workflow-lead-{{PROJECT_NAME}}"
+LOG="$WF/lead.log"
+
+log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
+log "=== Lead cycle ==="
+
+# Skip if human is connected to lead's session
+if pgrep -f "kiro-cli.*$LEAD_HOME" >/dev/null 2>&1; then
+  log "SKIPPED: human connected to lead session."
+  exit 0
+fi
+
+# Read answer.md content into prompt, then clear it
+ANSWER_CONTENT=""
+ANSWER_FILE="$WF/answer.md"
+if [ -s "$ANSWER_FILE" ] && grep -qv "^#\|^$" "$ANSWER_FILE"; then
+  ANSWER_CONTENT=$(cat "$ANSWER_FILE")
+  echo "# Human Answers" > "$ANSWER_FILE"
+  log "Read and cleared answer.md"
+fi
+
+mkdir -p "$LEAD_HOME"
+cd "$LEAD_HOME"
+kiro-cli chat --no-interactive --trust-all-tools --resume \
+  "You are the LEAD orchestrator with CODE REVIEW authority.
+Project: {{PROJECT_PATH}}
+
+Read ALL (absolute paths):
+- {{PROJECT_PATH}}/.kiro-workflow/guidelines.md
+- {{PROJECT_PATH}}/.kiro-workflow/tasks.md
+- {{PROJECT_PATH}}/.kiro-workflow/status.md
+- {{PROJECT_PATH}}/.kiro-workflow/messages.md
+- {{PROJECT_PATH}}/.kiro-workflow/patterns.md
+
+HUMAN ANSWER (process this first, it's from the human):
+$ANSWER_CONTENT
+
+STEP 1 — CODE REVIEW (most important):
+Run: git -C {{PROJECT_PATH}} log --oneline -3
+For each NEW commit since your last review, run:
+  git -C {{PROJECT_PATH}} show <hash> --stat
+  git -C {{PROJECT_PATH}} show <hash>
+Review against:
+- Does it match the task's acceptance criteria?
+- Is the code correct? Any obvious bugs?
+- Are tests meaningful (not just 'assert true')?
+- Does it follow patterns.md conventions?
+
+If a commit is BAD:
+- Append to messages: **[lead TIMESTAMP] REJECTED <hash>: reason. Fix: specific instruction.**
+- Update tasks.md: move task back to Current with '[fix needed]' prefix
+- Worker will see this and fix on next cycle
+
+If commit is GOOD:
+- Append: **[lead TIMESTAMP]** Approved <hash>. Brief praise or note.
+
+STEP 2 — SPEC REVIEW:
+Check {{PROJECT_PATH}}/.kiro-workflow/specs/ for pending specs.
+If spec exists: review it. If good → message 'Spec approved, implement.' If bad → revision notes.
+
+STEP 3 — QUEUE MANAGEMENT:
+- If Queue < 3 tasks → generate more from guidelines.md
+- BUT if ALL tasks are done and queue is empty → check guidelines.md for the next epoch.
+  - If a next epoch exists: update the phase marker to the next epoch, generate tasks for it, and continue.
+  - If NO next epoch exists (all epochs done): THEN notify human and stop.
+- Keep tasks small (30 min max). Break big work into pieces.
+- Mark complex tasks with [needs-spec]
+- Format: - [ ] **T<N>: Title** + description + acceptance criteria
+
+STEP 4 — LEARNING (every 10 completed tasks):
+Count Done tasks. If divisible by 10, review all recent Done tasks and:
+- Update guidelines.md with refined priorities based on what was learned
+- Add a 'Retrospective' entry to messages.md
+
+STEP 5 — ESCALATE:
+If human input needed: bash {{PROJECT_PATH}}/.kiro-workflow/notify.sh 'REASON'
+
+STEP 6 — TRIM:
+If messages.md > 500 lines, summarize old into SUMMARY block at top.
+
+RULES:
+- NEVER modify .kiro-workflow/lead.sh, worker.sh, run.sh, or notify.sh.
+- NEVER rewrite or remove the Epochs section in guidelines.md — only the human sets those.
+- You may add notes WITHIN the current epoch section but never delete epoch markers.
+
+Be strict on reviews. Quality > speed. Reject bad code." 2>&1 | tee -a "$LOG"
+
+log "=== Lead done ==="
