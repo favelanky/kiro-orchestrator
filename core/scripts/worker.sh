@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Worker: continuous mode — loops through tasks until queue is empty
+# Worker: executes one task per invocation, then exits for lead to cycle
 set -euo pipefail
 
 PROJECT="{{PROJECT_PATH}}"
@@ -10,42 +10,52 @@ SESSION_FILE="$WF/.worker-session-id"
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Worker session start ==="
 
-# Get or create session ID
-RESUME_FLAG="--resume"
-if [ -f "$SESSION_FILE" ]; then
-  RESUME_FLAG="--resume-id $(cat "$SESSION_FILE")"
-fi
-
 cd "$PROJECT"
-kiro-cli chat --no-interactive --trust-all-tools $RESUME_FLAG \
-  "You are a WORKER on this project in CONTINUOUS MODE.
 
-FIRST: Read these files NOW (use absolute paths):
+if [ -f "$SESSION_FILE" ]; then
+  # Continue: session exists, worker has context
+  SESSION_ID=$(cat "$SESSION_FILE")
+  log "Resuming session $SESSION_ID"
+  kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
+    "Next task. Read .kiro-workflow/tasks.md — pick the next unchecked item from Queue or Current. Implement it (one task only), then stop.
+
+Reminder:
+- Update status.md (state=active) before starting
+- Commit with format: T<N>: short description
+- Move task to Done in tasks.md
+- Update status.md (state=idle)
+- Append to messages.md: **[worker TIMESTAMP]** what you did
+- Then STOP." 2>&1 | tee -a "$LOG"
+else
+  # First run: full instructions
+  log "First run — full prompt"
+  kiro-cli chat --no-interactive --trust-all-tools --resume \
+    "You are a WORKER on this project.
+
+FIRST: Read these files (absolute paths):
 - {{PROJECT_PATH}}/.kiro-workflow/tasks.md
+- {{PROJECT_PATH}}/.kiro-workflow/guidelines.md
 - {{PROJECT_PATH}}/.kiro-workflow/patterns.md
 - {{PROJECT_PATH}}/.kiro-workflow/messages.md (last 20 lines)
 
-CRITICAL RULES:
-- DO NOT rewrite or regenerate the Queue. The lead manages it. Only move items from Queue → Current → Done.
-- DO NOT rename or redefine tasks. Implement EXACTLY what is written in the queue.
+RULES:
+- DO NOT rewrite or regenerate the Queue. Only move items: Queue → Current → Done.
+- DO NOT rename or redefine tasks. Implement EXACTLY what is written.
 - DO NOT add new tasks to the queue.
-- NEVER modify .kiro-workflow/lead.sh, worker.sh, run.sh, or notify.sh.
+- NEVER modify .kiro-workflow/*.sh files.
+- Implement ONE task, then STOP.
 
-CONTINUOUS MODE: Do NOT stop after one task. Keep working until the Queue is empty.
-
-FOR EACH TASK:
-1. Move next from Queue → Current (copy it exactly as written)
-2. Update status.md: state=active, current task=T<N>
-3. If task is [needs-spec]: write spec to .kiro-workflow/specs/T<N>-spec.md, update status to 'spec-written', then STOP
-4. Otherwise implement:
+WORKFLOW:
+1. Pick next unchecked task from Queue → move to Current
+2. Update status.md: state=active, current task
+3. Implement:
    a. Write code
-   b. cargo check — if fails, fix (2 attempts max, then git checkout -- . and mark blocked)
-   c. cargo test — if fails, fix
-   d. git add + commit with message format: T<N>: short description
-5. Move task to Done in tasks.md (one-line result with commit hash)
-6. Update status.md: state=idle or next task
-7. Append to messages.md: **[worker TIMESTAMP]** what you did
-8. IMMEDIATELY take next task from Queue and repeat
+   b. Run build/test — if fails, fix (2 attempts max, then mark blocked)
+   c. git add + commit with format: T<N>: short description
+4. Move task to Done in tasks.md (one-line result with commit hash)
+5. Update status.md: state=idle
+6. Append to messages.md: **[worker TIMESTAMP]** what you did
+7. STOP.
 
 STATUS.MD FORMAT (use exactly this):
 # Worker Status
@@ -56,18 +66,10 @@ STATUS.MD FORMAT (use exactly this):
 **Progress:** brief note
 **Blockers:** none (or description)
 
-STOP CONDITIONS (only these):
-- Queue is empty
-- Task needs spec approval
-- Blocker that needs human
+Do ONE task now, then stop." 2>&1 | tee -a "$LOG"
 
-For parallelizable subtasks, use the subagent tool to spawn parallel workers.
-
-UNLIMITED BUDGET. Be thorough. Write tests." 2>&1 | tee -a "$LOG"
-
-# Capture session ID on first run
-if [ ! -f "$SESSION_FILE" ]; then
-  SID=$(cd "$PROJECT" && kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
+  # Capture session ID
+  SID=$(kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
   if [ -n "$SID" ]; then
     echo "$SID" > "$SESSION_FILE"
     log "Captured worker session ID: $SID"

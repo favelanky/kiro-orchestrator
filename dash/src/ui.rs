@@ -139,7 +139,7 @@ fn draw_dashboard(f: &mut Frame, app: &App) {
     // Row: worker status + git
     let mid_row = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[i]);
     draw_worker(f, app, mid_row[0]);
     draw_git(f, app, mid_row[1]);
