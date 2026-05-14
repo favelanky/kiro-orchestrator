@@ -112,9 +112,9 @@ fn draw_dashboard(f: &mut Frame, app: &App) {
     let mut constraints = vec![Constraint::Length(3)]; // tabs
     if show_banner { constraints.push(Constraint::Length(3)); }
     constraints.extend([
-        Constraint::Length(3),  // phase
-        Constraint::Length(7),  // worker
-        Constraint::Min(6),    // middle
+        Constraint::Length(3),  // epoch + progress row
+        Constraint::Length(7),  // worker + git row
+        Constraint::Min(6),    // tasks + messages row
         Constraint::Length(3), // footer
     ]);
 
@@ -126,9 +126,34 @@ fn draw_dashboard(f: &mut Frame, app: &App) {
     let mut i = 0;
     draw_tabs(f, app, chunks[i]); i += 1;
     if show_banner { draw_banner(f, app, chunks[i], has_alert); i += 1; }
-    draw_phase(f, app, chunks[i]); i += 1;
-    draw_worker(f, app, chunks[i]); i += 1;
-    draw_middle(f, app, chunks[i]); i += 1;
+
+    // Row: epoch + progress
+    let top_row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+        .split(chunks[i]);
+    draw_phase(f, app, top_row[0]);
+    draw_progress(f, app, top_row[1]);
+    i += 1;
+
+    // Row: worker status + git
+    let mid_row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(chunks[i]);
+    draw_worker(f, app, mid_row[0]);
+    draw_git(f, app, mid_row[1]);
+    i += 1;
+
+    // Row: tasks + messages (messages wider)
+    let bottom_row = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+        .split(chunks[i]);
+    draw_tasks_only(f, app, bottom_row[0]);
+    draw_messages(f, app, bottom_row[1]);
+    i += 1;
+
     if app.view_mode == ViewMode::InputAnswer {
         draw_input_bar(f, app, chunks[i]);
     } else {
@@ -270,30 +295,8 @@ fn draw_worker(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn draw_middle(f: &mut Frame, app: &App, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(30),
-            Constraint::Percentage(45),
-            Constraint::Percentage(25),
-        ])
-        .split(area);
-
-    draw_queue(f, app, chunks[0]);
-    draw_messages(f, app, chunks[1]);
-    draw_git(f, app, chunks[2]);
-}
-
-fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
+fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
     let data = app.current();
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(1)])
-        .split(area);
-
-    // Progress gauge
     if let Some(ref tasks) = data.tasks {
         let total = tasks.current.len() + tasks.queue.len() + tasks.done.len();
         let done = tasks.done.len();
@@ -309,12 +312,14 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
             .gauge_style(Style::default().fg(Color::Green).bg(Color::DarkGray))
             .ratio(ratio)
             .label(label);
-        f.render_widget(gauge, chunks[0]);
+        f.render_widget(gauge, area);
     } else {
-        f.render_widget(Paragraph::new("—").block(titled_block(" Progress ")), chunks[0]);
+        f.render_widget(Paragraph::new("—").block(titled_block(" Progress ")), area);
     }
+}
 
-    // Task list
+fn draw_tasks_only(f: &mut Frame, app: &App, area: Rect) {
+    let data = app.current();
     let block = titled_block(" Tasks ");
     let mut lines = Vec::new();
 
@@ -335,7 +340,7 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
         }
         if !tasks.done.is_empty() {
             lines.push(Line::from(Span::styled("✓ Done:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
-            for t in &tasks.done {
+            for t in tasks.done.iter().rev().take(5) {
                 lines.push(Line::from(Span::styled(format!("  {}", t.title), DIM)));
             }
         }
@@ -343,7 +348,7 @@ fn draw_queue(f: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(Span::styled("No task data", DIM)));
     }
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: true }), chunks[1]);
+    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: true }), area);
 }
 
 fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
