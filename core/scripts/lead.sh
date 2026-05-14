@@ -93,8 +93,9 @@ If messages.md > 500 lines, summarize old into SUMMARY block at top.
 
 RULES:
 - NEVER modify .kiro-workflow/lead.sh, worker.sh, run.sh, or notify.sh.
-- NEVER rewrite or remove the Epochs section in guidelines.md — only the human sets those.
-- You may add notes WITHIN the current epoch section but never delete epoch markers.
+- You MAY reorder, skip, or mark epochs as done in guidelines.md (e.g. skip a blocked epoch to start the next one).
+- You may NOT delete epochs or rewrite their descriptions.
+- After processing a HUMAN ANSWER, move the related item from ## Open to ## Resolved in needs-human.md.
 
 Be strict on reviews. Quality > speed. Reject bad code." 2>&1 | tee -a "$LOG"
 
