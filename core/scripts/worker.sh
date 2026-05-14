@@ -5,12 +5,19 @@ set -euo pipefail
 PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 LOG="$WF/worker.log"
+SESSION_FILE="$WF/.worker-session-id"
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Worker session start ==="
 
+# Get or create session ID
+RESUME_FLAG="--resume"
+if [ -f "$SESSION_FILE" ]; then
+  RESUME_FLAG="--resume-id $(cat "$SESSION_FILE")"
+fi
+
 cd "$PROJECT"
-kiro-cli chat --no-interactive --trust-all-tools --resume \
+kiro-cli chat --no-interactive --trust-all-tools $RESUME_FLAG \
   "You are a WORKER on this project in CONTINUOUS MODE.
 
 FIRST: Read these files NOW (use absolute paths):
@@ -57,5 +64,14 @@ STOP CONDITIONS (only these):
 For parallelizable subtasks, use the subagent tool to spawn parallel workers.
 
 UNLIMITED BUDGET. Be thorough. Write tests." 2>&1 | tee -a "$LOG"
+
+# Capture session ID on first run
+if [ ! -f "$SESSION_FILE" ]; then
+  SID=$(cd "$PROJECT" && kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
+  if [ -n "$SID" ]; then
+    echo "$SID" > "$SESSION_FILE"
+    log "Captured worker session ID: $SID"
+  fi
+fi
 
 log "=== Worker session end ==="

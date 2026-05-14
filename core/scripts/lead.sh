@@ -6,6 +6,7 @@ PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 LEAD_HOME="$HOME/.kiro-workflow-lead-{{PROJECT_NAME}}"
 LOG="$WF/lead.log"
+SESSION_FILE="$WF/.lead-session-id"
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Lead cycle ==="
@@ -25,9 +26,15 @@ if [ -s "$ANSWER_FILE" ] && grep -qv "^#\|^$" "$ANSWER_FILE"; then
   log "Read and cleared answer.md"
 fi
 
+# Get or create session ID
+RESUME_FLAG="--resume"
+if [ -f "$SESSION_FILE" ]; then
+  RESUME_FLAG="--resume-id $(cat "$SESSION_FILE")"
+fi
+
 mkdir -p "$LEAD_HOME"
 cd "$LEAD_HOME"
-kiro-cli chat --no-interactive --trust-all-tools --resume \
+kiro-cli chat --no-interactive --trust-all-tools $RESUME_FLAG \
   "You are the LEAD orchestrator with CODE REVIEW authority.
 Project: {{PROJECT_PATH}}
 
@@ -90,5 +97,14 @@ RULES:
 - You may add notes WITHIN the current epoch section but never delete epoch markers.
 
 Be strict on reviews. Quality > speed. Reject bad code." 2>&1 | tee -a "$LOG"
+
+# Capture session ID on first run
+if [ ! -f "$SESSION_FILE" ]; then
+  SID=$(cd "$LEAD_HOME" && kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
+  if [ -n "$SID" ]; then
+    echo "$SID" > "$SESSION_FILE"
+    log "Captured lead session ID: $SID"
+  fi
+fi
 
 log "=== Lead done ==="
