@@ -81,15 +81,21 @@ fn main() -> Result<()> {
             if let Event::Key(key) = event::read()? {
                 match app.view_mode {
                     ViewMode::LogView => match key.code {
-                        KeyCode::Char('q') | KeyCode::Char('l') | KeyCode::Esc => app.toggle_log_view(),
+                        KeyCode::Char('q') | KeyCode::Esc => app.toggle_log_view(),
                         KeyCode::Up | KeyCode::Char('k') => app.log_scroll_up(),
                         KeyCode::Down | KeyCode::Char('j') => app.log_scroll_down(),
+                        KeyCode::Char('l') => app.log_switch_next(),
+                        KeyCode::Char('h') => app.log_switch_prev(),
+                        KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => app.log_scroll_half_up(),
+                        KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => app.log_scroll_half_down(),
                         _ => {}
                     },
                     ViewMode::MessageScroll => match key.code {
                         KeyCode::Char('q') | KeyCode::Char('m') | KeyCode::Esc => app.toggle_msg_scroll(),
                         KeyCode::Up | KeyCode::Char('k') => app.msg_scroll_up(),
                         KeyCode::Down | KeyCode::Char('j') => app.msg_scroll_down(),
+                        KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => app.msg_scroll_half_up(),
+                        KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => app.msg_scroll_half_down(),
                         _ => {}
                     },
                     ViewMode::InputAnswer => match key.code {
@@ -121,6 +127,11 @@ fn main() -> Result<()> {
                             let lead_home = format!("{}/.kiro-workflow-lead-{}", std::env::var("HOME").unwrap_or_default(), name);
                             let wf_dir = &app.project_paths[app.active_project];
                             open_lead_session(&mut terminal, &lead_home, wf_dir)?;
+                            app.reload();
+                        }
+                        KeyCode::Char('w') => {
+                            let wf_dir = &app.project_paths[app.active_project];
+                            open_worker_session(&mut terminal, wf_dir)?;
                             app.reload();
                         }
                         KeyCode::Char('r') => {
@@ -198,6 +209,34 @@ fn open_lead_session(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
         Command::new("kiro-cli")
             .args(["chat", "--trust-all-tools", "--resume"])
             .current_dir(lead_home)
+            .status()?
+    };
+
+    stdout().execute(EnterAlternateScreen)?;
+    enable_raw_mode()?;
+    terminal.clear()?;
+    Ok(())
+}
+
+fn open_worker_session(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, wf_dir: &Path) -> Result<()> {
+    disable_raw_mode()?;
+    stdout().execute(LeaveAlternateScreen)?;
+
+    let project_dir = wf_dir.parent().unwrap_or(wf_dir);
+    let session_file = wf_dir.join(".worker-session-id");
+    let session_id = std::fs::read_to_string(&session_file).ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let _status = if let Some(ref id) = session_id {
+        Command::new("kiro-cli")
+            .args(["chat", "--trust-all-tools", "--resume-id", id])
+            .current_dir(project_dir)
+            .status()?
+    } else {
+        Command::new("kiro-cli")
+            .args(["chat", "--trust-all-tools", "--resume"])
+            .current_dir(project_dir)
             .status()?
     };
 

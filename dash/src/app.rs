@@ -1,6 +1,24 @@
 use std::path::PathBuf;
 use crate::reader::ProjectData;
 
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip until we hit a letter (end of escape sequence)
+            for c2 in chars.by_ref() {
+                if c2.is_ascii_alphabetic() || c2 == 'h' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ViewMode {
     Dashboard,
@@ -17,6 +35,7 @@ pub struct App {
     pub view_mode: ViewMode,
     pub log_lines: Vec<String>,
     pub log_scroll: usize,
+    pub log_file_index: usize,
     pub msg_scroll: usize,
     pub input_buf: String,
 }
@@ -32,6 +51,7 @@ impl App {
             view_mode: ViewMode::Dashboard,
             log_lines: Vec::new(),
             log_scroll: 0,
+            log_file_index: 0,
             msg_scroll: 0,
             input_buf: String::new(),
         }
@@ -95,26 +115,45 @@ impl App {
         if self.view_mode == ViewMode::LogView {
             self.view_mode = ViewMode::Dashboard;
         } else {
+            self.log_file_index = 0;
             self.load_logs();
             self.view_mode = ViewMode::LogView;
         }
     }
 
+    const LOG_FILES: [&str; 3] = ["orchestrator.log", "lead.log", "worker.log"];
+
     pub fn load_logs(&mut self) {
         let wf = &self.project_paths[self.active_project];
-        let mut lines = Vec::new();
-        for name in ["orchestrator.log", "lead.log", "worker.log"] {
-            let path = wf.join(name);
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                lines.push(format!("=== {} ===", name));
-                // Only take last 200 lines per file to keep it manageable
-                let all: Vec<&str> = content.lines().collect();
-                let start = all.len().saturating_sub(200);
-                lines.extend(all[start..].iter().map(|l| l.to_string()));
-            }
-        }
-        self.log_lines = lines;
+        let name = Self::LOG_FILES[self.log_file_index];
+        let path = wf.join(name);
+        self.log_lines = if let Ok(bytes) = std::fs::read(&path) {
+            let content = String::from_utf8_lossy(&bytes);
+            let all: Vec<&str> = content.lines().collect();
+            let start = all.len().saturating_sub(500);
+            all[start..].iter().map(|l| strip_ansi(l)).collect()
+        } else {
+            vec![format!("(no {} found at {:?})", name, path)]
+        };
         self.log_scroll = self.log_lines.len().saturating_sub(1);
+    }
+
+    pub fn log_file_name(&self) -> &str {
+        Self::LOG_FILES[self.log_file_index]
+    }
+
+    pub fn log_switch_next(&mut self) {
+        self.log_file_index = (self.log_file_index + 1) % Self::LOG_FILES.len();
+        self.load_logs();
+    }
+
+    pub fn log_switch_prev(&mut self) {
+        self.log_file_index = if self.log_file_index == 0 {
+            Self::LOG_FILES.len() - 1
+        } else {
+            self.log_file_index - 1
+        };
+        self.load_logs();
     }
 
     pub fn log_scroll_up(&mut self) {
@@ -125,6 +164,15 @@ impl App {
         if self.log_scroll < self.log_lines.len().saturating_sub(1) {
             self.log_scroll += 1;
         }
+    }
+
+    pub fn log_scroll_half_up(&mut self) {
+        self.log_scroll = self.log_scroll.saturating_sub(20);
+    }
+
+    pub fn log_scroll_half_down(&mut self) {
+        let max = self.log_lines.len().saturating_sub(1);
+        self.log_scroll = (self.log_scroll + 20).min(max);
     }
 
     pub fn toggle_msg_scroll(&mut self) {
@@ -153,6 +201,15 @@ impl App {
         if self.msg_scroll < max {
             self.msg_scroll += 1;
         }
+    }
+
+    pub fn msg_scroll_half_up(&mut self) {
+        self.msg_scroll = self.msg_scroll.saturating_sub(20);
+    }
+
+    pub fn msg_scroll_half_down(&mut self) {
+        let max = self.msg_line_count().saturating_sub(1);
+        self.msg_scroll = (self.msg_scroll + 20).min(max);
     }
 
     pub fn start_input(&mut self) {
@@ -238,7 +295,7 @@ mod tests {
     fn test_log_scroll() {
         let a = make_workflow("scroll");
         let content: String = (0..50).map(|i| format!("line {}\n", i)).collect();
-        fs::write(a.join("worker.log"), &content).unwrap();
+        fs::write(a.join("orchestrator.log"), &content).unwrap();
         let mut app = App::new(vec![a.clone()]);
         app.toggle_log_view();
         let max = app.log_lines.len().saturating_sub(1);

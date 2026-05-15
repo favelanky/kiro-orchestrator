@@ -71,7 +71,8 @@ fn draw_log_view(f: &mut Frame, app: &App) {
         .constraints([Constraint::Min(1), Constraint::Length(3)])
         .split(area);
 
-    let block = titled_block(" Logs ");
+    let title = format!(" {} ({} lines) ", app.log_file_name(), app.log_lines.len());
+    let block = titled_block(&title);
     let inner = block.inner(chunks[0]);
     let visible_height = inner.height as usize;
 
@@ -93,10 +94,10 @@ fn draw_log_view(f: &mut Frame, app: &App) {
     let footer_block = Block::default().borders(Borders::ALL).border_type(BORDER);
     let spans = vec![
         Span::styled("q", Style::default().fg(Color::Yellow)), Span::raw("/"),
-        Span::styled("l", Style::default().fg(Color::Yellow)), Span::raw("/"),
         Span::styled("Esc", Style::default().fg(Color::Yellow)), Span::raw(":close "),
-        Span::styled("↑/k", Style::default().fg(Color::Yellow)), Span::raw(":up "),
-        Span::styled("↓/j", Style::default().fg(Color::Yellow)), Span::raw(":down"),
+        Span::styled("h/l", Style::default().fg(Color::Yellow)), Span::raw(":switch file "),
+        Span::styled("j/k", Style::default().fg(Color::Yellow)), Span::raw(":scroll "),
+        Span::styled("C-u/C-d", Style::default().fg(Color::Yellow)), Span::raw(":page"),
     ];
     f.render_widget(Paragraph::new(Line::from(spans)).block(footer_block), chunks[1]);
 }
@@ -239,15 +240,11 @@ fn needs_human_first_item(content: &str) -> Option<&str> {
             break; // hit next section
         }
         if in_open && trimmed.starts_with("- ") {
-            // Strip leading "- **timestamp** — " pattern
             let item = trimmed.strip_prefix("- ").unwrap_or(trimmed);
             return Some(item);
         }
     }
-    // Fallback: find any non-header, non-empty, non-comment line
-    content.lines()
-        .map(|l| l.trim())
-        .find(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("<!--"))
+    None
 }
 
 fn draw_phase(f: &mut Frame, app: &App, area: Rect) {
@@ -401,6 +398,7 @@ fn draw_footer(f: &mut Frame, area: Rect) {
     let spans = vec![
         Span::styled("q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":quit "),
         Span::styled("c", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":lead "),
+        Span::styled("w", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":worker "),
         Span::styled("i", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":input "),
         Span::styled("a", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":answer "),
         Span::styled("t", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)), Span::raw(":tasks "),
