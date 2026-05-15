@@ -56,6 +56,7 @@ while true; do
   # Run lead if enough time passed
   if (( now - last_lead >= LEAD_INTERVAL )); then
     log "Running lead..."
+    printf '# Worker Status\n\n**State:** lead-reviewing\n**Last updated:** %s\n**Current task:** —\n**Progress:** lead cycle\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
     bash "$WF/lead.sh" || log "Lead failed"
     last_lead=$now
   fi
@@ -88,12 +89,14 @@ while true; do
   blocked=$(grep "^\- \[ \]" "$WF/tasks.md" 2>/dev/null | grep -ci "BLOCKED" || echo 0)
   if [ "$total" -eq 0 ] || [ "$total" -eq "$blocked" ]; then
     log "Queue empty or all blocked ($blocked/$total), skipping worker"
+    printf '# Worker Status\n\n**State:** idle\n**Last updated:** %s\n**Current task:** none\n**Progress:** queue empty or blocked (%s/%s)\n**Blockers:** none\n' "$(date -Iseconds)" "$blocked" "$total" > "$WF/status.md"
     sleep 30
     continue
   fi
 
   # Run worker
   log "Running worker..."
+  printf '# Worker Status\n\n**State:** active\n**Last updated:** %s\n**Current task:** (starting)\n**Progress:** worker running\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
   bash "$WF/worker.sh" || log "Worker exited"
 
   # Brief pause before next cycle
