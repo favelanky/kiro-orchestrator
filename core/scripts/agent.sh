@@ -48,34 +48,14 @@ Do your job now. Write results to your workspace data/ directory."
 if [ -f "$SESSION_FILE" ]; then
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
-  kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
-    "Continue your job as $AGENT_NAME. Check if anything changed since last run. Produce updated output." 2>&1 | stdbuf -oL tee -a "$LOG" &
-  CLI_PID=$!
+  timeout 600 kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
+    "Continue your job as $AGENT_NAME. Check if anything changed since last run. Produce updated output." 2>&1 | stdbuf -oL tee -a "$LOG" || log "Agent exited (timeout or error)"
 else
   log "First run — full prompt"
-  kiro-cli chat --no-interactive --trust-all-tools --resume \
-    "$FULL_PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" &
-  CLI_PID=$!
-fi
+  timeout 600 kiro-cli chat --no-interactive --trust-all-tools --resume \
+    "$FULL_PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" || log "Agent exited (timeout or error)"
 
-# Watchdog: kill if no log output for 3 min
-WATCHDOG_INTERVAL=600
-while kill -0 $CLI_PID 2>/dev/null; do
-  size_before=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
-  sleep "$WATCHDOG_INTERVAL"
-  if ! kill -0 $CLI_PID 2>/dev/null; then break; fi
-  size_after=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
-  if [ "$size_before" = "$size_after" ]; then
-    log "WATCHDOG: agent $AGENT_NAME hung (no output for ${WATCHDOG_INTERVAL}s), killing"
-    kill $CLI_PID 2>/dev/null
-    wait $CLI_PID 2>/dev/null
-    break
-  fi
-done
-wait $CLI_PID 2>/dev/null
-
-# Capture session ID on first run
-if [ ! -f "$SESSION_FILE" ]; then
+  # Capture session ID
   SID=$(kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
   if [ -n "$SID" ]; then
     echo "$SID" > "$SESSION_FILE"

@@ -6,18 +6,18 @@ PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 LOG="$WF/worker.log"
 SESSION_FILE="$WF/.worker-session-id"
-WATCHDOG_INTERVAL=600  # kill if no output for 10 min
+MAX_TIME=600  # 10 min max per invocation
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Worker session start ==="
 
 cd "$PROJECT"
 
-# Build the kiro-cli command
 if [ -f "$SESSION_FILE" ]; then
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
-  PROMPT="Read {{PROJECT_PATH}}/.kiro-workflow/tasks.md NOW. Pick the next unchecked item (- [ ]) from Current or Queue. Implement it (one task only), then stop.
+  timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
+    "Read {{PROJECT_PATH}}/.kiro-workflow/tasks.md NOW. Pick the next unchecked item (- [ ]) from Current or Queue. Implement it (one task only), then stop.
 
 Reminder:
 - Update status.md (state=active) before starting
@@ -25,12 +25,11 @@ Reminder:
 - Move task to Done in tasks.md
 - Update status.md (state=idle)
 - Append to messages.md: **[worker TIMESTAMP]** what you did
-- Then STOP."
-  kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" "$PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" &
-  CLI_PID=$!
+- Then STOP." 2>&1 | stdbuf -oL tee -a "$LOG" || log "Worker exited (timeout or error)"
 else
   log "First run — full prompt"
-  PROMPT="You are a WORKER on this project.
+  timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools --resume \
+    "You are a WORKER on this project.
 
 FIRST: Read these files (absolute paths):
 - {{PROJECT_PATH}}/.kiro-workflow/tasks.md
@@ -66,28 +65,9 @@ STATUS.MD FORMAT (use exactly this):
 **Progress:** brief note
 **Blockers:** none (or description)
 
-Do ONE task now, then stop."
-  kiro-cli chat --no-interactive --trust-all-tools --resume "$PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" &
-  CLI_PID=$!
-fi
+Do ONE task now, then stop." 2>&1 | stdbuf -oL tee -a "$LOG" || log "Worker exited (timeout or error)"
 
-# Watchdog: kill if no log output for WATCHDOG_INTERVAL seconds
-while kill -0 $CLI_PID 2>/dev/null; do
-  size_before=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
-  sleep "$WATCHDOG_INTERVAL"
-  if ! kill -0 $CLI_PID 2>/dev/null; then break; fi
-  size_after=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
-  if [ "$size_before" = "$size_after" ]; then
-    log "WATCHDOG: no output for ${WATCHDOG_INTERVAL}s, killing hung process"
-    kill $CLI_PID 2>/dev/null
-    wait $CLI_PID 2>/dev/null
-    break
-  fi
-done
-wait $CLI_PID 2>/dev/null
-
-# Capture session ID on first run
-if [ ! -f "$SESSION_FILE" ]; then
+  # Capture session ID
   SID=$(kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
   if [ -n "$SID" ]; then
     echo "$SID" > "$SESSION_FILE"

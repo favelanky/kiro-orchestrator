@@ -44,9 +44,9 @@ fi
 mkdir -p "$LEAD_HOME"
 cd "$LEAD_HOME"
 
-WATCHDOG_INTERVAL=600
+MAX_TIME=600  # 10 min max
 
-kiro-cli chat --no-interactive --trust-all-tools $RESUME_FLAG \
+timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools $RESUME_FLAG \
   "You are the LEAD orchestrator with CODE REVIEW authority.
 Project: {{PROJECT_PATH}}
 
@@ -116,23 +116,7 @@ Check .kiro-workflow/agents/*/config.toml for active agents.
 - If an agent reports a problem in messages.md, create a worker task to resolve it
 - You may edit agents/<name>/config.toml to adjust interval or set enabled=false
 
-Be strict on reviews. Quality > speed. Reject bad code." 2>&1 | stdbuf -oL tee -a "$LOG" &
-CLI_PID=$!
-
-# Watchdog: kill if no log output for WATCHDOG_INTERVAL seconds
-while kill -0 $CLI_PID 2>/dev/null; do
-  size_before=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
-  sleep "$WATCHDOG_INTERVAL"
-  if ! kill -0 $CLI_PID 2>/dev/null; then break; fi
-  size_after=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
-  if [ "$size_before" = "$size_after" ]; then
-    log "WATCHDOG: lead hung (no output for ${WATCHDOG_INTERVAL}s), killing"
-    kill $CLI_PID 2>/dev/null
-    wait $CLI_PID 2>/dev/null
-    break
-  fi
-done
-wait $CLI_PID 2>/dev/null
+Be strict on reviews. Quality > speed. Reject bad code." 2>&1 | stdbuf -oL tee -a "$LOG" || log "Lead exited (timeout or error)"
 
 # Capture session ID on first run
 if [ ! -f "$SESSION_FILE" ]; then
