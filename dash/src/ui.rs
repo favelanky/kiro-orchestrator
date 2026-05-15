@@ -95,7 +95,7 @@ fn draw_log_view(f: &mut Frame, app: &App) {
     let spans = vec![
         Span::styled("q", Style::default().fg(Color::Yellow)), Span::raw("/"),
         Span::styled("Esc", Style::default().fg(Color::Yellow)), Span::raw(":close "),
-        Span::styled("h/l", Style::default().fg(Color::Yellow)), Span::raw(":switch file "),
+        Span::styled("←/→", Style::default().fg(Color::Yellow)), Span::raw(":switch file "),
         Span::styled("j/k", Style::default().fg(Color::Yellow)), Span::raw(":scroll "),
         Span::styled("C-u/C-d", Style::default().fg(Color::Yellow)), Span::raw(":page"),
     ];

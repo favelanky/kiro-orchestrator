@@ -84,8 +84,8 @@ fn main() -> Result<()> {
                         KeyCode::Char('q') | KeyCode::Esc => app.toggle_log_view(),
                         KeyCode::Up | KeyCode::Char('k') => app.log_scroll_up(),
                         KeyCode::Down | KeyCode::Char('j') => app.log_scroll_down(),
-                        KeyCode::Char('l') => app.log_switch_next(),
-                        KeyCode::Char('h') => app.log_switch_prev(),
+                        KeyCode::Right | KeyCode::Char('l') => app.log_switch_next(),
+                        KeyCode::Left | KeyCode::Char('h') => app.log_switch_prev(),
                         KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => app.log_scroll_half_up(),
                         KeyCode::Char('d') if key.modifiers.contains(event::KeyModifiers::CONTROL) => app.log_scroll_half_down(),
                         _ => {}

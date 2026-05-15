@@ -59,6 +59,7 @@ while true; do
     printf '# Worker Status\n\n**State:** lead-reviewing\n**Last updated:** %s\n**Current task:** —\n**Progress:** lead cycle\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
     bash "$WF/lead.sh" || log "Lead failed"
     last_lead=$now
+    printf '# Worker Status\n\n**State:** idle\n**Last updated:** %s\n**Current task:** —\n**Progress:** lead done, checking agents/worker\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
   fi
 
   # Send summary if enough time passed
