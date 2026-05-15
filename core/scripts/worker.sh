@@ -17,7 +17,7 @@ if [ -f "$SESSION_FILE" ]; then
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
   kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
-    "Next task. Read .kiro-workflow/tasks.md — pick the next unchecked item from Queue or Current. Implement it (one task only), then stop.
+    "Read {{PROJECT_PATH}}/.kiro-workflow/tasks.md NOW. Pick the next unchecked item (- [ ]) from Current or Queue. Implement it (one task only), then stop.
 
 Reminder:
 - Update status.md (state=active) before starting
