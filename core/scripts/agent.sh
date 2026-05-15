@@ -49,12 +49,12 @@ if [ -f "$SESSION_FILE" ]; then
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
   kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
-    "Continue your job as $AGENT_NAME. Check if anything changed since last run. Produce updated output." 2>&1 | tee -a "$LOG" &
+    "Continue your job as $AGENT_NAME. Check if anything changed since last run. Produce updated output." 2>&1 | stdbuf -oL tee -a "$LOG" &
   CLI_PID=$!
 else
   log "First run — full prompt"
   kiro-cli chat --no-interactive --trust-all-tools --resume \
-    "$FULL_PROMPT" 2>&1 | tee -a "$LOG" &
+    "$FULL_PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" &
   CLI_PID=$!
 fi
 

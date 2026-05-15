@@ -116,7 +116,7 @@ Check .kiro-workflow/agents/*/config.toml for active agents.
 - If an agent reports a problem in messages.md, create a worker task to resolve it
 - You may edit agents/<name>/config.toml to adjust interval or set enabled=false
 
-Be strict on reviews. Quality > speed. Reject bad code." 2>&1 | tee -a "$LOG" &
+Be strict on reviews. Quality > speed. Reject bad code." 2>&1 | stdbuf -oL tee -a "$LOG" &
 CLI_PID=$!
 
 # Watchdog: kill if no log output for WATCHDOG_INTERVAL seconds

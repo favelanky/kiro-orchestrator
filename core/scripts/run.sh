@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Orchestrator: continuous worker + periodic lead
+# Orchestrator: runs lead, agents, worker in a loop
 set -euo pipefail
 
 PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 LEAD_INTERVAL="${KIRO_LEAD_INTERVAL:-180}"
-ORCH_LOG="$WF/orchestrator.log"
 
-log() { echo "[$(date -Iseconds)] $*" | tee -a "$ORCH_LOG"; }
+log() { echo "[$(date -Iseconds)] $*"; }
 
 # Prevent duplicate instances
 PIDFILE="$WF/.run.pid"
@@ -57,7 +56,7 @@ while true; do
   # Run lead if enough time passed
   if (( now - last_lead >= LEAD_INTERVAL )); then
     log "Running lead..."
-    bash "$WF/lead.sh" 2>&1 | tee -a "$ORCH_LOG" || log "Lead failed"
+    bash "$WF/lead.sh" || log "Lead failed"
     last_lead=$now
   fi
 
@@ -72,16 +71,14 @@ while true; do
     [ -d "$agent_dir" ] || continue
     config="$agent_dir/config.toml"
     [ -f "$config" ] || continue
-    # Check enabled
     grep -q 'enabled *= *false' "$config" && continue
-    # Get interval
     agent_interval=$(grep '^interval' "$config" | sed 's/[^0-9]//g')
     agent_interval="${agent_interval:-600}"
     agent_name=$(basename "$agent_dir")
     last="${last_agent_run[$agent_name]:-0}"
     if (( now - last >= agent_interval )); then
       log "Running agent: $agent_name"
-      bash "$WF/agent.sh" "$agent_dir" 2>&1 | tee -a "$ORCH_LOG" || log "Agent $agent_name failed"
+      bash "$WF/agent.sh" "$agent_dir" || log "Agent $agent_name failed"
       last_agent_run[$agent_name]=$now
     fi
   done
@@ -97,7 +94,7 @@ while true; do
 
   # Run worker
   log "Running worker..."
-  bash "$WF/worker.sh" 2>&1 | tee -a "$ORCH_LOG" || log "Worker exited"
+  bash "$WF/worker.sh" || log "Worker exited"
 
   # Brief pause before next cycle
   sleep 10

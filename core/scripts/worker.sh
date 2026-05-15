@@ -26,7 +26,7 @@ Reminder:
 - Update status.md (state=idle)
 - Append to messages.md: **[worker TIMESTAMP]** what you did
 - Then STOP."
-  kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" "$PROMPT" 2>&1 | tee -a "$LOG" &
+  kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" "$PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" &
   CLI_PID=$!
 else
   log "First run — full prompt"
@@ -67,7 +67,7 @@ STATUS.MD FORMAT (use exactly this):
 **Blockers:** none (or description)
 
 Do ONE task now, then stop."
-  kiro-cli chat --no-interactive --trust-all-tools --resume "$PROMPT" 2>&1 | tee -a "$LOG" &
+  kiro-cli chat --no-interactive --trust-all-tools --resume "$PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" &
   CLI_PID=$!
 fi
 

@@ -121,7 +121,7 @@ impl App {
         }
     }
 
-    const LOG_FILES: [&str; 3] = ["orchestrator.log", "lead.log", "worker.log"];
+    const LOG_FILES: [&str; 2] = ["worker.log", "lead.log"];
 
     pub fn load_logs(&mut self) {
         let wf = &self.project_paths[self.active_project];
@@ -295,7 +295,7 @@ mod tests {
     fn test_log_scroll() {
         let a = make_workflow("scroll");
         let content: String = (0..50).map(|i| format!("line {}\n", i)).collect();
-        fs::write(a.join("orchestrator.log"), &content).unwrap();
+        fs::write(a.join("worker.log"), &content).unwrap();
         let mut app = App::new(vec![a.clone()]);
         app.toggle_log_view();
         let max = app.log_lines.len().saturating_sub(1);
