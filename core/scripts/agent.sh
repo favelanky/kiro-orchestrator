@@ -48,11 +48,11 @@ Do your job now. Write results to your workspace data/ directory."
 if [ -f "$SESSION_FILE" ]; then
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
-  timeout 900 kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
+  kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
     "Continue your job as $AGENT_NAME. Check if anything changed since last run. Produce updated output." 2>&1 | tee -a "$LOG"
 else
   log "First run — full prompt"
-  timeout 900 kiro-cli chat --no-interactive --trust-all-tools --resume \
+  kiro-cli chat --no-interactive --trust-all-tools --resume \
     "$FULL_PROMPT" 2>&1 | tee -a "$LOG"
 
   # Capture session ID
