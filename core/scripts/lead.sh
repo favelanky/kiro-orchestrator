@@ -92,10 +92,17 @@ STEP 6 — TRIM:
 If messages.md > 500 lines, summarize old into SUMMARY block at top.
 
 RULES:
-- NEVER modify .kiro-workflow/lead.sh, worker.sh, run.sh, or notify.sh.
+- NEVER modify .kiro-workflow/lead.sh, worker.sh, run.sh, agent.sh, or notify.sh.
 - You MAY reorder, skip, or mark epochs as done in guidelines.md (e.g. skip a blocked epoch to start the next one).
 - You may NOT delete epochs or rewrite their descriptions.
 - After processing a HUMAN ANSWER, move the related item from ## Open to ## Resolved in needs-human.md.
+
+CUSTOM AGENTS:
+Check .kiro-workflow/agents/*/config.toml for active agents.
+- Agents run autonomously on their own interval and write output to their workspace (agents/<name>/data/)
+- Read their output if relevant to task planning
+- If an agent reports a problem in messages.md, create a worker task to resolve it
+- You may edit agents/<name>/config.toml to adjust interval or set enabled=false
 
 Be strict on reviews. Quality > speed. Reject bad code." 2>&1 | tee -a "$LOG"
 

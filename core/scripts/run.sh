@@ -14,6 +14,7 @@ log "Starting orchestrator"
 last_lead=0
 last_summary=0
 SUMMARY_INTERVAL="${KIRO_SUMMARY_INTERVAL:-3600}"
+declare -A last_agent_run
 
 # Send Telegram summary
 send_summary() {
@@ -56,6 +57,25 @@ while true; do
     send_summary
     last_summary=$now
   fi
+
+  # Run custom agents on their intervals
+  for agent_dir in "$WF"/agents/*/; do
+    [ -d "$agent_dir" ] || continue
+    config="$agent_dir/config.toml"
+    [ -f "$config" ] || continue
+    # Check enabled
+    grep -q 'enabled *= *false' "$config" && continue
+    # Get interval
+    agent_interval=$(grep '^interval' "$config" | sed 's/[^0-9]//g')
+    agent_interval="${agent_interval:-600}"
+    agent_name=$(basename "$agent_dir")
+    last="${last_agent_run[$agent_name]:-0}"
+    if (( now - last >= agent_interval )); then
+      log "Running agent: $agent_name"
+      bash "$WF/agent.sh" "$agent_dir" 2>&1 | tee -a "$ORCH_LOG" || log "Agent $agent_name failed"
+      last_agent_run[$agent_name]=$now
+    fi
+  done
 
   # Skip worker if queue is empty or all tasks are blocked
   total=$(grep -c "^\- \[ \]" "$WF/tasks.md" 2>/dev/null || echo 0)
