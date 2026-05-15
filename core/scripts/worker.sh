@@ -6,7 +6,7 @@ PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 LOG="$WF/worker.log"
 SESSION_FILE="$WF/.worker-session-id"
-WATCHDOG_INTERVAL=180  # kill if no output for 3 min
+WATCHDOG_INTERVAL=600  # kill if no output for 10 min
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Worker session start ==="

@@ -44,7 +44,7 @@ fi
 mkdir -p "$LEAD_HOME"
 cd "$LEAD_HOME"
 
-WATCHDOG_INTERVAL=180
+WATCHDOG_INTERVAL=600
 
 kiro-cli chat --no-interactive --trust-all-tools $RESUME_FLAG \
   "You are the LEAD orchestrator with CODE REVIEW authority.

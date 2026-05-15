@@ -59,7 +59,7 @@ else
 fi
 
 # Watchdog: kill if no log output for 3 min
-WATCHDOG_INTERVAL=180
+WATCHDOG_INTERVAL=600
 while kill -0 $CLI_PID 2>/dev/null; do
   size_before=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
   sleep "$WATCHDOG_INTERVAL"
