@@ -195,6 +195,10 @@ fn open_lead_session(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     stdout().execute(LeaveAlternateScreen)?;
     let _ = std::fs::create_dir_all(lead_home);
 
+    // Create lockfile so orchestrator's lead.sh skips
+    let lockfile = wf_dir.join(".lead.lock");
+    let _ = std::fs::write(&lockfile, std::process::id().to_string());
+
     let session_file = wf_dir.join(".lead-session-id");
     let session_id = std::fs::read_to_string(&session_file).ok()
         .map(|s| s.trim().to_string())
@@ -211,6 +215,9 @@ fn open_lead_session(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
             .current_dir(lead_home)
             .status()?
     };
+
+    // Remove lockfile
+    let _ = std::fs::remove_file(&lockfile);
 
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;

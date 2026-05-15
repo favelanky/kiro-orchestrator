@@ -11,11 +11,20 @@ SESSION_FILE="$WF/.lead-session-id"
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Lead cycle ==="
 
-# Skip if human is connected to lead's session
-if pgrep -f "kiro-cli.*$LEAD_HOME" >/dev/null 2>&1; then
-  log "SKIPPED: human connected to lead session."
-  exit 0
+LOCKFILE="$WF/.lead.lock"
+
+# Skip if lead is already running (human connected or another cycle)
+if [ -f "$LOCKFILE" ]; then
+  lock_pid=$(cat "$LOCKFILE" 2>/dev/null)
+  if kill -0 "$lock_pid" 2>/dev/null; then
+    log "SKIPPED: lead session busy (pid $lock_pid)"
+    exit 0
+  else
+    rm -f "$LOCKFILE"  # stale lock
+  fi
 fi
+echo $$ > "$LOCKFILE"
+trap 'rm -f "$LOCKFILE"' EXIT
 
 # Read answer.md content into prompt, then clear it
 ANSWER_CONTENT=""
