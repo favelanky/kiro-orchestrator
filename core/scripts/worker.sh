@@ -16,7 +16,7 @@ if [ -f "$SESSION_FILE" ]; then
   # Continue: session exists, worker has context
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
-  kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
+  timeout 900 kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
     "Read {{PROJECT_PATH}}/.kiro-workflow/tasks.md NOW. Pick the next unchecked item (- [ ]) from Current or Queue. Implement it (one task only), then stop.
 
 Reminder:
@@ -29,7 +29,7 @@ Reminder:
 else
   # First run: full instructions
   log "First run — full prompt"
-  kiro-cli chat --no-interactive --trust-all-tools --resume \
+  timeout 900 kiro-cli chat --no-interactive --trust-all-tools --resume \
     "You are a WORKER on this project.
 
 FIRST: Read these files (absolute paths):

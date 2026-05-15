@@ -43,7 +43,7 @@ fi
 
 mkdir -p "$LEAD_HOME"
 cd "$LEAD_HOME"
-kiro-cli chat --no-interactive --trust-all-tools $RESUME_FLAG \
+timeout 900 kiro-cli chat --no-interactive --trust-all-tools $RESUME_FLAG \
   "You are the LEAD orchestrator with CODE REVIEW authority.
 Project: {{PROJECT_PATH}}
 
