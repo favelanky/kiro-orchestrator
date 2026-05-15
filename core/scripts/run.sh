@@ -9,6 +9,15 @@ ORCH_LOG="$WF/orchestrator.log"
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$ORCH_LOG"; }
 
+# Prevent duplicate instances
+PIDFILE="$WF/.run.pid"
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+  echo "Already running (pid $(cat "$PIDFILE"))" >&2
+  exit 1
+fi
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE"' EXIT
+
 log "Starting orchestrator"
 
 last_lead=0

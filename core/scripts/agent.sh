@@ -49,13 +49,33 @@ if [ -f "$SESSION_FILE" ]; then
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
   kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
-    "Continue your job as $AGENT_NAME. Check if anything changed since last run. Produce updated output." 2>&1 | tee -a "$LOG"
+    "Continue your job as $AGENT_NAME. Check if anything changed since last run. Produce updated output." 2>&1 | tee -a "$LOG" &
+  CLI_PID=$!
 else
   log "First run — full prompt"
   kiro-cli chat --no-interactive --trust-all-tools --resume \
-    "$FULL_PROMPT" 2>&1 | tee -a "$LOG"
+    "$FULL_PROMPT" 2>&1 | tee -a "$LOG" &
+  CLI_PID=$!
+fi
 
-  # Capture session ID
+# Watchdog: kill if no log output for 3 min
+WATCHDOG_INTERVAL=180
+while kill -0 $CLI_PID 2>/dev/null; do
+  size_before=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
+  sleep "$WATCHDOG_INTERVAL"
+  if ! kill -0 $CLI_PID 2>/dev/null; then break; fi
+  size_after=$(stat -c%s "$LOG" 2>/dev/null || echo 0)
+  if [ "$size_before" = "$size_after" ]; then
+    log "WATCHDOG: agent $AGENT_NAME hung (no output for ${WATCHDOG_INTERVAL}s), killing"
+    kill $CLI_PID 2>/dev/null
+    wait $CLI_PID 2>/dev/null
+    break
+  fi
+done
+wait $CLI_PID 2>/dev/null
+
+# Capture session ID on first run
+if [ ! -f "$SESSION_FILE" ]; then
   SID=$(kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
   if [ -n "$SID" ]; then
     echo "$SID" > "$SESSION_FILE"
