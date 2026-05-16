@@ -68,7 +68,7 @@ while true; do
     last_summary=$now
   fi
 
-  # Run custom agents on their intervals
+  # Run custom agents on their intervals (background, non-blocking)
   for agent_dir in "$WF"/agents/*/; do
     [ -d "$agent_dir" ] || continue
     config="$agent_dir/config.toml"
@@ -79,8 +79,8 @@ while true; do
     agent_name=$(basename "$agent_dir")
     last="${last_agent_run[$agent_name]:-0}"
     if (( now - last >= agent_interval )); then
-      log "Running agent: $agent_name"
-      bash "$WF/agent.sh" "$agent_dir" || log "Agent $agent_name failed"
+      log "Running agent: $agent_name (background)"
+      bash "$WF/agent.sh" "$agent_dir" &
       last_agent_run[$agent_name]=$now
     fi
   done

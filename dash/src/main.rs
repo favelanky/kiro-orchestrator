@@ -154,6 +154,11 @@ fn main() -> Result<()> {
             }
         }
 
+        // Auto-reload logs when in log view
+        if app.view_mode == ViewMode::LogView {
+            app.load_logs();
+        }
+
         if let Some(ref w) = dw {
             if w.has_changes() {
                 // Re-run discovery and update project list

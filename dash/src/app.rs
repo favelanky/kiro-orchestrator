@@ -127,6 +127,9 @@ impl App {
         let wf = &self.project_paths[self.active_project];
         let name = Self::LOG_FILES[self.log_file_index];
         let path = wf.join(name);
+        let old_len = self.log_lines.len();
+        let was_at_bottom = self.log_scroll >= old_len.saturating_sub(1);
+
         self.log_lines = if let Ok(bytes) = std::fs::read(&path) {
             let content = String::from_utf8_lossy(&bytes);
             let all: Vec<&str> = content.lines().collect();
@@ -135,7 +138,10 @@ impl App {
         } else {
             vec![format!("(no {} found at {:?})", name, path)]
         };
-        self.log_scroll = self.log_lines.len().saturating_sub(1);
+
+        if was_at_bottom {
+            self.log_scroll = self.log_lines.len().saturating_sub(1);
+        }
     }
 
     pub fn log_file_name(&self) -> &str {

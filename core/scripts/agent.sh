@@ -24,7 +24,7 @@ HINTS=$(sed -n '/^hints *= *"""/,/^"""/p' "$CONFIG" | sed '1d;$d')
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Agent '$AGENT_NAME' start ==="
 
-cd "$PROJECT"
+cd "$AGENT_DIR"
 
 # Build the full prompt
 FULL_PROMPT="You are a custom agent: $AGENT_NAME
