@@ -112,10 +112,11 @@ fn main() -> Result<()> {
                         KeyCode::Char('l') => app.toggle_log_view(),
                         KeyCode::Char('m') => app.toggle_msg_scroll(),
                         KeyCode::Char('i') => app.start_input(),
-                        KeyCode::Char(c @ ('a' | 't' | 'g')) => {
+                        KeyCode::Char(c @ ('a' | 't' | 'g' | 'n')) => {
                             let file = match c {
                                 'a' => "answer.md",
                                 't' => "tasks.md",
+                                'n' => "needs-human.md",
                                 _ => "guidelines.md",
                             };
                             let path = app.project_paths[app.active_project].join(file);
