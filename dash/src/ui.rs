@@ -121,13 +121,19 @@ fn draw_log_view(f: &mut Frame, app: &App) {
 fn draw_dashboard(f: &mut Frame, app: &App) {
     let data = app.current();
     let has_alert = data.needs_human.as_ref()
-        .map(|n| needs_human_first_item(&n.content).is_some()).unwrap_or(false);
+        .map(|n| !needs_human_open_items(&n.content).is_empty()).unwrap_or(false);
     let is_blocked = data.status.as_ref()
         .map(|s| s.state == "blocked").unwrap_or(false);
     let show_banner = has_alert || is_blocked;
 
     let mut constraints = vec![Constraint::Length(3)]; // tabs
-    if show_banner { constraints.push(Constraint::Length(3)); }
+    let banner_lines = if show_banner {
+        if has_alert {
+            let content = data.needs_human.as_ref().map(|n| n.content.as_str()).unwrap_or("");
+            needs_human_open_items(content).len().max(1)
+        } else { 1 }
+    } else { 0 };
+    if show_banner { constraints.push(Constraint::Length((banner_lines + 2) as u16)); } // +2 for borders
     constraints.extend([
         Constraint::Length(3),  // epoch + progress row
         Constraint::Length(7),  // worker + git row
@@ -195,7 +201,7 @@ fn draw_tabs(f: &mut Frame, app: &App, area: Rect) {
             let name = app.project_name(i);
             let data = &app.data[i];
             let alert = data.needs_human.as_ref()
-                .map(|n| needs_human_first_item(&n.content).is_some()).unwrap_or(false);
+                .map(|n| !needs_human_open_items(&n.content).is_empty()).unwrap_or(false);
             let dot = if data.service_active { "●" } else { "○" };
             let dot_color = if data.service_active { Color::Green } else { Color::Red };
             if alert {
@@ -226,25 +232,29 @@ fn draw_tabs(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_banner(f: &mut Frame, app: &App, area: Rect, is_needs_human: bool) {
     let data = app.current();
-    let (msg, fg, bg) = if is_needs_human {
+    let (lines, fg, bg) = if is_needs_human {
         let content = data.needs_human.as_ref().map(|n| n.content.as_str()).unwrap_or("");
-        let first = needs_human_first_item(content).unwrap_or("Attention needed");
-        // Truncate long messages
-        let display = if first.len() > 120 { &first[..120] } else { first };
-        (format!(" ⚠  NEEDS HUMAN: {}", display), Color::White, Color::Red)
+        let items = needs_human_open_items(content);
+        let display: Vec<Line> = if items.is_empty() {
+            vec![Line::from(" ⚠  NEEDS HUMAN: Attention needed")]
+        } else {
+            items.iter().map(|item| Line::from(format!(" ⚠  {}", item))).collect()
+        };
+        (display, Color::White, Color::Red)
     } else {
-        (" ⚠  BLOCKED".to_string(), Color::Black, Color::Yellow)
+        (vec![Line::from(" ⚠  BLOCKED")], Color::Black, Color::Yellow)
     };
     let style = Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BORDER)
         .border_style(Style::default().fg(bg));
-    f.render_widget(Paragraph::new(msg).style(style).block(block), area);
+    f.render_widget(Paragraph::new(lines).style(style).block(block), area);
 }
 
-/// Extract the first actionable item from needs-human.md, skipping headers/comments
-fn needs_human_first_item(content: &str) -> Option<&str> {
+/// Extract all open items from needs-human.md
+fn needs_human_open_items(content: &str) -> Vec<&str> {
+    let mut items = Vec::new();
     let mut in_open = false;
     for line in content.lines() {
         let trimmed = line.trim();
@@ -253,14 +263,13 @@ fn needs_human_first_item(content: &str) -> Option<&str> {
             continue;
         }
         if trimmed.starts_with("## ") && in_open {
-            break; // hit next section
+            break;
         }
         if in_open && trimmed.starts_with("- ") {
-            let item = trimmed.strip_prefix("- ").unwrap_or(trimmed);
-            return Some(item);
+            items.push(trimmed.strip_prefix("- ").unwrap_or(trimmed));
         }
     }
-    None
+    items
 }
 
 fn draw_phase(f: &mut Frame, app: &App, area: Rect) {
