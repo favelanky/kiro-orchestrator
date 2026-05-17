@@ -289,8 +289,8 @@ while true; do
   done
 
   # Skip worker if queue is empty or all tasks are blocked
-  total=$(grep -c "^\- \[ \]" "$WF/tasks.md" 2>/dev/null || echo 0)
-  blocked=$(grep "^\- \[ \]" "$WF/tasks.md" 2>/dev/null | grep -ci "BLOCKED" || echo 0)
+  total=$(grep -c "^\- \[ \]" "$WF/tasks.md" 2>/dev/null) || total=0
+  blocked=$(grep "^\- \[ \]" "$WF/tasks.md" 2>/dev/null | grep -ci "BLOCKED") || blocked=0
   if [ "$total" -eq 0 ] || [ "$total" -eq "$blocked" ]; then
     log "Queue empty or all blocked ($blocked/$total), waiting for events"
     aggregate_status "idle"
