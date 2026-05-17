@@ -131,7 +131,7 @@ fn draw_dashboard(f: &mut Frame, app: &App) {
             needs_human_open_items(content).len().max(1)
         } else { 1 }
     } else { 0 };
-    if show_banner { constraints.push(Constraint::Length((banner_lines + 2) as u16)); } // +2 for borders
+    if show_banner { constraints.push(Constraint::Length((banner_lines * 2 + 2) as u16)); } // *2 for potential wrap, +2 borders
     constraints.extend([
         Constraint::Length(3),  // epoch + progress row
         Constraint::Length(7),  // worker + git row
@@ -251,7 +251,7 @@ fn draw_banner(f: &mut Frame, app: &App, area: Rect, is_needs_human: bool) {
         .borders(Borders::ALL)
         .border_type(BORDER)
         .border_style(Style::default().fg(bg));
-    f.render_widget(Paragraph::new(lines).style(style).block(block), area);
+    f.render_widget(Paragraph::new(lines).style(style).wrap(ratatui::widgets::Wrap { trim: false }).block(block), area);
 }
 
 /// Extract all open items from needs-human.md
