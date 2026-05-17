@@ -91,12 +91,12 @@ if [ -f "$SESSION_FILE" ]; then
     "Continue your job as $AGENT_NAME (workspace: $AGENT_DIR/).
 Re-read your config at $CONFIG if you are unsure of the task.
 Check if anything changed since last run. Produce updated output." 2>&1 \
-    | stdbuf -oL tee -a "$LOG" \
+    | stdbuf -oL awk '{print "["strftime("%H:%M:%S")"]", $0}' | tee -a "$LOG" \
     || log "Agent exited (timeout or error)"
 else
   log "First run — full prompt"
   timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools --resume \
-    "$FULL_PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" \
+    "$FULL_PROMPT" 2>&1 | stdbuf -oL awk '{print "["strftime("%H:%M:%S")"]", $0}' | tee -a "$LOG" \
       || log "Agent exited (timeout or error)"
 
   # R3: capture session ID via snapshot-diff (find new file with cwd=$AGENT_DIR)

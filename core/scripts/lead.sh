@@ -110,12 +110,12 @@ fi
 if [ -n "$RESUME_ARG" ]; then
   timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools \
     "$RESUME_FLAG" "$RESUME_ARG" "$PROMPT" 2>&1 \
-    | stdbuf -oL tee -a "$LOG" \
+    | stdbuf -oL awk '{print "["strftime("%H:%M:%S")"]", $0}' | tee -a "$LOG" \
     || log "Lead exited (timeout or error)"
 else
   timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools \
     "$RESUME_FLAG" "$PROMPT" 2>&1 \
-    | stdbuf -oL tee -a "$LOG" \
+    | stdbuf -oL awk '{print "["strftime("%H:%M:%S")"]", $0}' | tee -a "$LOG" \
     || log "Lead exited (timeout or error)"
 fi
 

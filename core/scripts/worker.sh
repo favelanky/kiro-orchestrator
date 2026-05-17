@@ -53,7 +53,7 @@ Reminder:
 - Move task to Done in tasks.md
 - Update $WF/state/worker.state (state=idle) when done
 - Announce via: bash $WF/append-msg.sh '**[worker TIMESTAMP]** what you did'
-- Then STOP." 2>&1 | stdbuf -oL tee -a "$LOG" \
+- Then STOP." 2>&1 | stdbuf -oL awk '{print "["strftime("%H:%M:%S")"]", $0}' | tee -a "$LOG" \
       || log "Worker exited (timeout or error)"
 else
   log "First run — full prompt"
@@ -94,7 +94,7 @@ STATE FILE FORMAT ($WF/state/worker.state — use exactly this):
 **Progress:** brief note
 **Blockers:** none (or description)
 
-Do ONE task now, then stop." 2>&1 | stdbuf -oL tee -a "$LOG" \
+Do ONE task now, then stop." 2>&1 | stdbuf -oL awk '{print "["strftime("%H:%M:%S")"]", $0}' | tee -a "$LOG" \
       || log "Worker exited (timeout or error)"
 
   # R3: capture session ID via snapshot-diff (find new file with cwd=$PROJECT)

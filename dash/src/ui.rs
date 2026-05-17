@@ -84,9 +84,17 @@ fn draw_log_view(f: &mut Frame, app: &App) {
             if l.starts_with("===") {
                 Line::from(Span::styled(l.as_str(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
             } else if l.starts_with('[') && l.len() > 20 && l.chars().nth(25).map_or(false, |c| c == ']') {
-                // Line has a timestamp: [2026-05-17T19:35:32+03:00] ...
+                // Bash log() line: [2026-05-17T19:35:32+03:00] ...
                 let time = &l[12..17]; // extract HH:MM
                 let rest = &l[27..];   // after "] "
+                Line::from(vec![
+                    Span::styled(format!("{} ", time), Style::default().fg(Color::DarkGray)),
+                    Span::styled(rest, Style::default()),
+                ])
+            } else if l.starts_with("[") && l.len() > 9 && &l[3..4] == ":" && &l[6..7] == ":" && &l[9..10] == "]" {
+                // kiro-cli output line: [HH:MM:SS] ...
+                let time = &l[1..9]; // HH:MM:SS
+                let rest = if l.len() > 11 { &l[11..] } else { "" };
                 Line::from(vec![
                     Span::styled(format!("{} ", time), Style::default().fg(Color::DarkGray)),
                     Span::styled(rest, Style::default()),
