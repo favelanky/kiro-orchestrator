@@ -87,20 +87,18 @@ fn draw_log_view(f: &mut Frame, app: &App) {
                 // Bash log() line: [2026-05-17T19:35:32+03:00] ...
                 let time = &l[12..17]; // extract HH:MM
                 let rest = &l[27..];   // after "] "
-                Line::from(vec![
-                    Span::styled(format!("{} ", time), Style::default().fg(Color::DarkGray)),
-                    Span::styled(rest, Style::default()),
-                ])
+                let mut spans = vec![Span::styled(format!("{} ", time), Style::default().fg(Color::DarkGray))];
+                spans.extend(parse_bold(rest, Style::default()));
+                Line::from(spans)
             } else if l.starts_with("[") && l.len() > 9 && &l[3..4] == ":" && &l[6..7] == ":" && &l[9..10] == "]" {
                 // kiro-cli output line: [HH:MM:SS] ...
                 let time = &l[1..9]; // HH:MM:SS
                 let rest = if l.len() > 11 { &l[11..] } else { "" };
-                Line::from(vec![
-                    Span::styled(format!("{} ", time), Style::default().fg(Color::DarkGray)),
-                    Span::styled(rest, Style::default()),
-                ])
+                let mut spans = vec![Span::styled(format!("{} ", time), Style::default().fg(Color::DarkGray))];
+                spans.extend(parse_bold(rest, Style::default()));
+                Line::from(spans)
             } else {
-                Line::from(Span::styled(l.as_str(), DIM))
+                Line::from(parse_bold(l, DIM))
             }
         })
         .collect();
@@ -236,9 +234,13 @@ fn draw_banner(f: &mut Frame, app: &App, area: Rect, is_needs_human: bool) {
         let content = data.needs_human.as_ref().map(|n| n.content.as_str()).unwrap_or("");
         let items = needs_human_open_items(content);
         let display: Vec<Line> = if items.is_empty() {
-            vec![Line::from(" ⚠  NEEDS HUMAN: Attention needed")]
+            vec![Line::from(" ⚠  Attention needed")]
         } else {
-            items.iter().map(|item| Line::from(format!(" ⚠  {}", item))).collect()
+            items.iter().map(|item| {
+                let mut spans = vec![Span::raw(" ⚠  ")];
+                spans.extend(parse_bold(item, Style::default()));
+                Line::from(spans)
+            }).collect()
         };
         (display, Color::White, Color::Red)
     } else {
@@ -450,20 +452,22 @@ fn style_msg_line(l: &str) -> Line<'_> {
         DIM
     };
 
-    // Parse **bold** markers into styled spans
-    let parts: Vec<&str> = l.split("**").collect();
+    Line::from(parse_bold(l, base_style))
+}
+
+/// Parse **bold** markers into spans. Segments inside ** get BOLD modifier added.
+fn parse_bold<'a>(text: &'a str, base: Style) -> Vec<Span<'a>> {
+    let parts: Vec<&str> = text.split("**").collect();
     if parts.len() <= 1 {
-        return Line::from(Span::styled(l, base_style));
+        return vec![Span::styled(text, base)];
     }
-    let spans: Vec<Span> = parts.iter().enumerate().map(|(i, part)| {
+    parts.iter().enumerate().map(|(i, part)| {
         if i % 2 == 1 {
-            // Odd segments are inside ** **
-            Span::styled(*part, base_style.add_modifier(Modifier::BOLD))
+            Span::styled(*part, base.add_modifier(Modifier::BOLD))
         } else {
-            Span::styled(*part, base_style)
+            Span::styled(*part, base)
         }
-    }).collect();
-    Line::from(spans)
+    }).collect()
 }
 
 fn style_for_state(state: &str) -> Style {
