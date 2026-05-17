@@ -50,6 +50,21 @@ any_trigger_changed() {
   return 1
 }
 
+# Returns comma-separated list of trigger filenames whose mtime > snapshot.
+# Empty string if none changed.
+list_changed_triggers() {
+  local f cur snap changed=""
+  for f in "${TRIGGER_FILES[@]}"; do
+    [ -e "$f" ] || continue
+    cur=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+    snap=${TRIGGER_MTIME["$f"]:-0}
+    if (( cur > snap )); then
+      changed="${changed:+$changed, }$(basename "$f")"
+    fi
+  done
+  echo "$changed"
+}
+
 mkdir -p "$STATE_DIR" "$STATE_DIR/agents"
 
 # Detect inotify-tools so the loop can be event-driven (Issue #1).
@@ -224,7 +239,16 @@ while true; do
   fi
 
   if (( should_run_lead == 1 )); then
-    log "Running lead... (reason: $trigger_reason)"
+    # Build the changed-file list for lead to focus on
+    if [ "$trigger_reason" = "event" ]; then
+      export LEAD_TRIGGERS
+      LEAD_TRIGGERS=$(list_changed_triggers)
+    elif [ "$trigger_reason" = "bootstrap" ]; then
+      export LEAD_TRIGGERS="bootstrap (first run — read everything)"
+    else
+      export LEAD_TRIGGERS="sanity-ceiling (periodic recheck)"
+    fi
+    log "Running lead... (reason: $trigger_reason, triggers: $LEAD_TRIGGERS)"
     # R8: record start time, not end time
     last_lead=$now
     aggregate_status "lead-reviewing"

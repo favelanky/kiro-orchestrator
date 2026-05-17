@@ -87,11 +87,12 @@ if [ -f "$SESSION_FILE" ]; then
   PROMPT="Continue your role as LEAD orchestrator for $PROJECT.
 (Re-read $ROLE_FILE if you are unsure of the protocol.)
 
+WHAT CHANGED (focus here first): ${LEAD_TRIGGERS:-unknown}
 HUMAN ANSWER (process this first, may be empty):
 $ANSWER_CONTENT
 
-Run your full cycle now: review new commits, check specs, manage queue
-(with [budget=Ns] annotations), learning if 10 done, escalate, trim."
+Run your cycle: only the steps relevant to what changed above.
+Skip steps with nothing new. Be efficient."
 else
   RESUME_FLAG="--resume"
   RESUME_ARG=""
@@ -99,6 +100,7 @@ else
 
 FIRST: Read $ROLE_FILE — it defines your role, rules, and full protocol.
 
+WHAT CHANGED: ${LEAD_TRIGGERS:-bootstrap}
 HUMAN ANSWER (process this first, may be empty):
 $ANSWER_CONTENT
 
