@@ -83,8 +83,16 @@ fn draw_log_view(f: &mut Frame, app: &App) {
         .map(|l| {
             if l.starts_with("===") {
                 Line::from(Span::styled(l.as_str(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)))
+            } else if l.starts_with('[') && l.len() > 20 && l.chars().nth(25).map_or(false, |c| c == ']') {
+                // Line has a timestamp: [2026-05-17T19:35:32+03:00] ...
+                let time = &l[12..17]; // extract HH:MM
+                let rest = &l[27..];   // after "] "
+                Line::from(vec![
+                    Span::styled(format!("{} ", time), Style::default().fg(Color::DarkGray)),
+                    Span::styled(rest, Style::default()),
+                ])
             } else {
-                Line::from(l.as_str())
+                Line::from(Span::styled(l.as_str(), DIM))
             }
         })
         .collect();
@@ -413,17 +421,32 @@ fn draw_footer(f: &mut Frame, area: Rect) {
 }
 
 fn style_msg_line(l: &str) -> Line<'_> {
-    if l.contains("[lead") {
-        Line::from(Span::styled(l, Style::default().fg(Color::Blue)))
+    let base_style = if l.contains("[lead") {
+        Style::default().fg(Color::Blue)
     } else if l.contains("[worker") {
-        Line::from(Span::styled(l, Style::default().fg(Color::Green)))
+        Style::default().fg(Color::Green)
     } else if l.contains("REJECTED") || l.contains("FAIL") {
-        Line::from(Span::styled(l, Style::default().fg(Color::Red)))
+        Style::default().fg(Color::Red)
     } else if l.contains("Approved") || l.contains("PASSED") {
-        Line::from(Span::styled(l, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)))
+        Style::default().fg(Color::Green)
     } else {
-        Line::from(Span::styled(l, DIM))
+        DIM
+    };
+
+    // Parse **bold** markers into styled spans
+    let parts: Vec<&str> = l.split("**").collect();
+    if parts.len() <= 1 {
+        return Line::from(Span::styled(l, base_style));
     }
+    let spans: Vec<Span> = parts.iter().enumerate().map(|(i, part)| {
+        if i % 2 == 1 {
+            // Odd segments are inside ** **
+            Span::styled(*part, base_style.add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(*part, base_style)
+        }
+    }).collect();
+    Line::from(spans)
 }
 
 fn style_for_state(state: &str) -> Style {
