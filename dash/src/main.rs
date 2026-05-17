@@ -122,18 +122,6 @@ fn main() -> Result<()> {
                             open_editor(&mut terminal, &path)?;
                             app.reload();
                         }
-                        KeyCode::Char('c') => {
-                            let name = app.project_name(app.active_project);
-                            let lead_home = format!("{}/.kiro-workflow-lead-{}", std::env::var("HOME").unwrap_or_default(), name);
-                            let wf_dir = &app.project_paths[app.active_project];
-                            open_lead_session(&mut terminal, &lead_home, wf_dir)?;
-                            app.reload();
-                        }
-                        KeyCode::Char('w') => {
-                            let wf_dir = &app.project_paths[app.active_project];
-                            open_worker_session(&mut terminal, wf_dir)?;
-                            app.reload();
-                        }
                         KeyCode::Char('r') => {
                             let name = app.project_name(app.active_project);
                             run_systemctl("restart", &format!("kiro-workflow@{}", name));
@@ -189,69 +177,6 @@ fn open_editor(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, path:
     stdout().execute(LeaveAlternateScreen)?;
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     Command::new(&editor).arg(path).status()?;
-    stdout().execute(EnterAlternateScreen)?;
-    enable_raw_mode()?;
-    terminal.clear()?;
-    Ok(())
-}
-
-fn open_lead_session(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, lead_home: &str, wf_dir: &Path) -> Result<()> {
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    let _ = std::fs::create_dir_all(lead_home);
-
-    // Create lockfile so orchestrator's lead.sh skips
-    let lockfile = wf_dir.join(".lead.lock");
-    let _ = std::fs::write(&lockfile, std::process::id().to_string());
-
-    let session_file = wf_dir.join(".lead-session-id");
-    let session_id = std::fs::read_to_string(&session_file).ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-
-    let _status = if let Some(ref id) = session_id {
-        Command::new("kiro-cli")
-            .args(["chat", "--trust-all-tools", "--resume-id", id])
-            .current_dir(lead_home)
-            .status()?
-    } else {
-        Command::new("kiro-cli")
-            .args(["chat", "--trust-all-tools", "--resume"])
-            .current_dir(lead_home)
-            .status()?
-    };
-
-    // Remove lockfile
-    let _ = std::fs::remove_file(&lockfile);
-
-    stdout().execute(EnterAlternateScreen)?;
-    enable_raw_mode()?;
-    terminal.clear()?;
-    Ok(())
-}
-
-fn open_worker_session(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, wf_dir: &Path) -> Result<()> {
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-
-    let project_dir = wf_dir.parent().unwrap_or(wf_dir);
-    let session_file = wf_dir.join(".worker-session-id");
-    let session_id = std::fs::read_to_string(&session_file).ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-
-    let _status = if let Some(ref id) = session_id {
-        Command::new("kiro-cli")
-            .args(["chat", "--trust-all-tools", "--resume-id", id])
-            .current_dir(project_dir)
-            .status()?
-    } else {
-        Command::new("kiro-cli")
-            .args(["chat", "--trust-all-tools", "--resume"])
-            .current_dir(project_dir)
-            .status()?
-    };
-
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;
     terminal.clear()?;
