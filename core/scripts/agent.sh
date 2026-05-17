@@ -5,11 +5,14 @@
 set -euo pipefail
 
 AGENT_DIR="$1"
+AGENT_DIR="${AGENT_DIR%/}"  # normalize: strip trailing slash so cwd matches /proc readlink
 PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 CONFIG="$AGENT_DIR/config.toml"
 LOG="$AGENT_DIR/agent.log"
 SESSION_FILE="$AGENT_DIR/.session-id"
+SESSION_DIR="$HOME/.kiro/sessions/cli"
+LOCKFILE="$AGENT_DIR/.lock"
 
 if [ ! -f "$CONFIG" ]; then
   echo "No config.toml in $AGENT_DIR" >&2
@@ -22,11 +25,26 @@ PROMPT=$(sed -n '/^prompt *= *"""/,/^"""/p' "$CONFIG" | sed '1d;$d')
 HINTS=$(sed -n '/^hints *= *"""/,/^"""/p' "$CONFIG" | sed '1d;$d')
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
+
+# --- R7: Per-agent lockfile, validated by /proc/<pid>/cmdline ---
+if [ -f "$LOCKFILE" ]; then
+  lock_pid=$(cat "$LOCKFILE" 2>/dev/null || echo "")
+  if [ -n "$lock_pid" ] \
+      && kill -0 "$lock_pid" 2>/dev/null \
+      && grep -qa "agent.sh" "/proc/$lock_pid/cmdline" 2>/dev/null; then
+    log "SKIPPED: agent '$AGENT_NAME' already running (pid $lock_pid)"
+    exit 0
+  fi
+  rm -f "$LOCKFILE"  # stale or unrelated
+fi
+echo $$ > "$LOCKFILE"
+trap 'rm -f "$LOCKFILE"' EXIT
+
 log "=== Agent '$AGENT_NAME' start ==="
 
 cd "$AGENT_DIR"
 
-# Build the full prompt
+# Build the full prompt (used on first run)
 FULL_PROMPT="You are a custom agent: $AGENT_NAME
 
 YOUR WORKSPACE: $AGENT_DIR/
@@ -45,22 +63,45 @@ $PROMPT
 
 Do your job now. Write results to your workspace data/ directory."
 
+MAX_TIME=600
+
+# R3: snapshot existing session files BEFORE first-run kiro-cli call
+PRE_SNAPSHOT=$(mktemp)
+ls "$SESSION_DIR"/*.json 2>/dev/null > "$PRE_SNAPSHOT" || true
+
 if [ -f "$SESSION_FILE" ]; then
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
-  timeout 600 kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
-    "Continue your job as $AGENT_NAME. Check if anything changed since last run. Produce updated output." 2>&1 | stdbuf -oL tee -a "$LOG" || log "Agent exited (timeout or error)"
+  timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools \
+    --resume-id "$SESSION_ID" \
+    "Continue your job as $AGENT_NAME (workspace: $AGENT_DIR/).
+Re-read your config at $CONFIG if you are unsure of the task.
+Check if anything changed since last run. Produce updated output." 2>&1 \
+    | stdbuf -oL tee -a "$LOG" \
+    || log "Agent exited (timeout or error)"
 else
   log "First run — full prompt"
-  timeout 600 kiro-cli chat --no-interactive --trust-all-tools --resume \
-    "$FULL_PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" || log "Agent exited (timeout or error)"
+  timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools --resume \
+    "$FULL_PROMPT" 2>&1 | stdbuf -oL tee -a "$LOG" \
+      || log "Agent exited (timeout or error)"
 
-  # Capture session ID
-  SID=$(kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
-  if [ -n "$SID" ]; then
-    echo "$SID" > "$SESSION_FILE"
-    log "Captured session ID: $SID"
-  fi
+  # R3: capture session ID via snapshot-diff (find new file with cwd=$AGENT_DIR)
+  for f in "$SESSION_DIR"/*.json; do
+    [ -f "$f" ] || continue
+    grep -qxF "$f" "$PRE_SNAPSHOT" && continue
+    cwd=$(python3 -c "import json
+try:
+  print(json.load(open('$f')).get('cwd',''))
+except Exception:
+  pass" 2>/dev/null || echo "")
+    if [ "$cwd" = "$AGENT_DIR" ]; then
+      sid=$(basename "$f" .json)
+      echo "$sid" > "$SESSION_FILE"
+      log "Captured session ID: $sid"
+      break
+    fi
+  done
 fi
 
+rm -f "$PRE_SNAPSHOT"
 log "=== Agent '$AGENT_NAME' end ==="

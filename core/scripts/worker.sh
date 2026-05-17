@@ -6,18 +6,46 @@ PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 LOG="$WF/worker.log"
 SESSION_FILE="$WF/.worker-session-id"
-MAX_TIME=600  # 10 min max per invocation
+SESSION_DIR="$HOME/.kiro/sessions/cli"
+
+# Default budget (single-file feature). Lead may override per-task with
+# [budget=Ns] annotation on the task line. We clamp to [60s, 3600s].
+DEFAULT_BUDGET=600
+MIN_BUDGET=60
+MAX_BUDGET=3600
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Worker session start ==="
 
 cd "$PROJECT"
 
+# --- Issue #2: parse [budget=Ns] from next unchecked, non-blocked task ---
+NEXT_LINE=$(grep "^- \[ \]" "$WF/tasks.md" 2>/dev/null \
+            | grep -vi "BLOCKED" \
+            | head -1 || true)
+
+BUDGET="$DEFAULT_BUDGET"
+if [ -n "$NEXT_LINE" ]; then
+  # Pattern: [budget=600s] or [budget=600]
+  if [[ "$NEXT_LINE" =~ \[budget=([0-9]+)s?\] ]]; then
+    BUDGET="${BASH_REMATCH[1]}"
+  fi
+fi
+# Clamp
+(( BUDGET < MIN_BUDGET )) && BUDGET=$MIN_BUDGET
+(( BUDGET > MAX_BUDGET )) && BUDGET=$MAX_BUDGET
+log "Budget for next task: ${BUDGET}s"
+
+# --- R3: snapshot session files BEFORE first-run kiro-cli call ---
+PRE_SNAPSHOT=$(mktemp)
+ls "$SESSION_DIR"/*.json 2>/dev/null > "$PRE_SNAPSHOT" || true
+
 if [ -f "$SESSION_FILE" ]; then
   SESSION_ID=$(cat "$SESSION_FILE")
   log "Resuming session $SESSION_ID"
-  timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools --resume-id "$SESSION_ID" \
-    "Read {{PROJECT_PATH}}/.kiro-workflow/tasks.md NOW. Pick the next unchecked item (- [ ]) from Current or Queue. Implement it (one task only), then stop.
+  timeout "$BUDGET" kiro-cli chat --no-interactive --trust-all-tools \
+    --resume-id "$SESSION_ID" \
+    "Read $WF/tasks.md NOW. Pick the next unchecked item (- [ ]) from Current or Queue (skip BLOCKED). Implement that one task, then stop.
 
 Reminder:
 - Update status.md (state=active) before starting
@@ -25,22 +53,23 @@ Reminder:
 - Move task to Done in tasks.md
 - Update status.md (state=idle)
 - Append to messages.md: **[worker TIMESTAMP]** what you did
-- Then STOP." 2>&1 | stdbuf -oL tee -a "$LOG" || log "Worker exited (timeout or error)"
+- Then STOP." 2>&1 | stdbuf -oL tee -a "$LOG" \
+      || log "Worker exited (timeout or error)"
 else
   log "First run — full prompt"
-  timeout "$MAX_TIME" kiro-cli chat --no-interactive --trust-all-tools --resume \
+  timeout "$BUDGET" kiro-cli chat --no-interactive --trust-all-tools --resume \
     "You are a WORKER on this project.
 
 FIRST: Read these files (absolute paths):
-- {{PROJECT_PATH}}/.kiro-workflow/tasks.md
-- {{PROJECT_PATH}}/.kiro-workflow/guidelines.md
-- {{PROJECT_PATH}}/.kiro-workflow/patterns.md
-- {{PROJECT_PATH}}/.kiro-workflow/messages.md (last 20 lines)
+- $WF/tasks.md
+- $WF/guidelines.md
+- $WF/patterns.md
+- $WF/messages.md (last 20 lines)
 
 RULES:
 - DO NOT rewrite or regenerate the Queue. Only move items: Queue → Current → Done.
 - DO NOT rename or redefine tasks. Implement EXACTLY what is written.
-- DO NOT add new tasks to the queue.
+- DO NOT add new tasks to the queue (that is the lead's job).
 - NEVER modify .kiro-workflow/*.sh files.
 - Implement ONE task, then STOP.
 
@@ -65,14 +94,26 @@ STATUS.MD FORMAT (use exactly this):
 **Progress:** brief note
 **Blockers:** none (or description)
 
-Do ONE task now, then stop." 2>&1 | stdbuf -oL tee -a "$LOG" || log "Worker exited (timeout or error)"
+Do ONE task now, then stop." 2>&1 | stdbuf -oL tee -a "$LOG" \
+      || log "Worker exited (timeout or error)"
 
-  # Capture session ID
-  SID=$(kiro-cli chat --list-sessions 2>&1 | grep "SessionId" | tail -1 | sed 's/.*SessionId: \x1b\[38;5;141m//' | sed 's/\x1b\[0m//')
-  if [ -n "$SID" ]; then
-    echo "$SID" > "$SESSION_FILE"
-    log "Captured worker session ID: $SID"
-  fi
+  # R3: capture session ID via snapshot-diff (find new file with cwd=$PROJECT)
+  for f in "$SESSION_DIR"/*.json; do
+    [ -f "$f" ] || continue
+    grep -qxF "$f" "$PRE_SNAPSHOT" && continue
+    cwd=$(python3 -c "import json
+try:
+  print(json.load(open('$f')).get('cwd',''))
+except Exception:
+  pass" 2>/dev/null || echo "")
+    if [ "$cwd" = "$PROJECT" ]; then
+      sid=$(basename "$f" .json)
+      echo "$sid" > "$SESSION_FILE"
+      log "Captured worker session ID: $sid"
+      break
+    fi
+  done
 fi
 
+rm -f "$PRE_SNAPSHOT"
 log "=== Worker session end ==="

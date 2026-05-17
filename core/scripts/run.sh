@@ -8,11 +8,18 @@ LEAD_INTERVAL="${KIRO_LEAD_INTERVAL:-180}"
 
 log() { echo "[$(date -Iseconds)] $*"; }
 
-# Prevent duplicate instances
+# Prevent duplicate instances (validate via /proc/<pid>/cmdline so we don't
+# treat a recycled PID as our own — R6/R12)
 PIDFILE="$WF/.run.pid"
-if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-  echo "Already running (pid $(cat "$PIDFILE"))" >&2
-  exit 1
+if [ -f "$PIDFILE" ]; then
+  pid=$(cat "$PIDFILE" 2>/dev/null || echo "")
+  if [ -n "$pid" ] \
+      && kill -0 "$pid" 2>/dev/null \
+      && grep -qa "run.sh" "/proc/$pid/cmdline" 2>/dev/null; then
+    echo "Already running (pid $pid)" >&2
+    exit 1
+  fi
+  rm -f "$PIDFILE"  # stale or unrelated PID
 fi
 echo $$ > "$PIDFILE"
 trap 'rm -f "$PIDFILE"' EXIT
@@ -56,9 +63,11 @@ while true; do
   # Run lead if enough time passed
   if (( now - last_lead >= LEAD_INTERVAL )); then
     log "Running lead..."
+    # R8: record start time, not end time, so the interval measures
+    # from-start-to-start instead of drifting if a lead cycle runs long.
+    last_lead=$now
     printf '# Worker Status\n\n**State:** lead-reviewing\n**Last updated:** %s\n**Current task:** —\n**Progress:** lead cycle\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
     bash "$WF/lead.sh" || log "Lead failed"
-    last_lead=$now
     printf '# Worker Status\n\n**State:** idle\n**Last updated:** %s\n**Current task:** —\n**Progress:** lead done, checking agents/worker\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
   fi
 

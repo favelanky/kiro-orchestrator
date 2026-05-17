@@ -33,12 +33,12 @@ mkdir -p "$WF/specs"
 echo "✓ Created $WF/"
 
 # 2. Copy and template scripts
-for script in run.sh worker.sh lead.sh notify.sh; do
+for script in run.sh worker.sh lead.sh agent.sh notify.sh; do
   sed "s|{{PROJECT_PATH}}|$PROJECT|g; s|{{PROJECT_NAME}}|$PROJECT_NAME|g" \
     "$CORE/scripts/$script" > "$WF/$script"
   chmod +x "$WF/$script"
 done
-echo "✓ Installed scripts (run.sh, worker.sh, lead.sh, notify.sh)"
+echo "✓ Installed scripts (run.sh, worker.sh, lead.sh, agent.sh, notify.sh)"
 
 # 3. Copy template .md files (don't overwrite existing)
 for tmpl in "$CORE/templates/"*.tmpl; do
@@ -53,6 +53,11 @@ echo "✓ Created template .md files (skipped existing)"
 # 4. Create lead home directory
 mkdir -p "$LEAD_HOME"
 echo "✓ Created lead home: $LEAD_HOME"
+
+# 4a. Deploy role.md (lead's full protocol — referenced by compressed lead prompts)
+sed "s|{{PROJECT_PATH}}|$PROJECT|g; s|{{PROJECT_NAME}}|$PROJECT_NAME|g" \
+  "$CORE/templates/role.md.tmpl" > "$LEAD_HOME/role.md"
+echo "✓ Deployed lead role.md → $LEAD_HOME/role.md"
 
 # 5. Generate context-aware guidelines and patterns via kiro-cli
 if [ ! -s "$WF/guidelines.md" ] || grep -q "{{" "$WF/guidelines.md" 2>/dev/null; then
