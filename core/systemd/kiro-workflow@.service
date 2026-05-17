@@ -8,7 +8,7 @@ ExecStart=%h/%i/.kiro-workflow/run.sh
 WorkingDirectory=%h/%i
 Restart=always
 RestartSec=10
-Environment=KIRO_LEAD_INTERVAL=180
+Environment=KIRO_LEAD_INTERVAL=3600
 Environment=KIRO_SUMMARY_INTERVAL=3600
 Environment=DISPLAY=:0
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus

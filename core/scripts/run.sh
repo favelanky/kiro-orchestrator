@@ -5,9 +5,50 @@ set -euo pipefail
 PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 STATE_DIR="$WF/state"
-LEAD_INTERVAL="${KIRO_LEAD_INTERVAL:-180}"
-MIN_LEAD_INTERVAL="${KIRO_MIN_LEAD_INTERVAL:-60}"
+LEAD_INTERVAL="${KIRO_LEAD_INTERVAL:-3600}"      # max time without lead (sanity ceiling)
+MIN_LEAD_INTERVAL="${KIRO_MIN_LEAD_INTERVAL:-60}" # min time between leads (anti-thrash)
 COMMIT_FLAG="$WF/.commit-flag"
+
+# Files whose modification triggers lead. Includes .commit-flag (touched by
+# git post-commit hook), human channels (answer.md, guidelines.md), state
+# files lead needs to react to (tasks.md, messages.md, needs-human.md).
+declare -a TRIGGER_FILES=(
+  "$WF/.commit-flag"
+  "$WF/answer.md"
+  "$WF/guidelines.md"
+  "$WF/tasks.md"
+  "$WF/messages.md"
+  "$WF/needs-human.md"
+)
+
+# Snapshot of trigger file mtimes. Refreshed AFTER each lead cycle so lead's
+# own writes don't re-trigger itself.
+declare -A TRIGGER_MTIME
+
+snapshot_triggers() {
+  local f
+  for f in "${TRIGGER_FILES[@]}"; do
+    if [ -e "$f" ]; then
+      TRIGGER_MTIME["$f"]=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+    else
+      TRIGGER_MTIME["$f"]=0
+    fi
+  done
+}
+
+any_trigger_changed() {
+  local f cur snap
+  for f in "${TRIGGER_FILES[@]}"; do
+    [ -e "$f" ] || continue
+    cur=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+    snap=${TRIGGER_MTIME["$f"]:-0}
+    if (( cur > snap )); then
+      log "Trigger fired: $(basename "$f") modified ($snap → $cur)"
+      return 0
+    fi
+  done
+  return 1
+}
 
 mkdir -p "$STATE_DIR" "$STATE_DIR/agents"
 
@@ -29,11 +70,12 @@ wait_for_event() {
 
   if [ "$HAS_INOTIFY" = "1" ]; then
     # Make sure target files exist so inotifywait doesn't error
-    [ -f "$COMMIT_FLAG" ]    || : > "$COMMIT_FLAG"
-    [ -f "$WF/answer.md" ]   || echo "# Human Answers" > "$WF/answer.md"
-    [ -f "$WF/tasks.md" ]    || echo "# Tasks" > "$WF/tasks.md"
+    local f
+    for f in "${TRIGGER_FILES[@]}"; do
+      [ -f "$f" ] || : > "$f"
+    done
     inotifywait -q -t "$timeout" -e modify -e close_write \
-      "$COMMIT_FLAG" "$WF/answer.md" "$WF/tasks.md" \
+      "${TRIGGER_FILES[@]}" \
       >/dev/null 2>&1 || true
   else
     sleep "$timeout"
@@ -152,34 +194,43 @@ send_summary() {
 # Initial status.md
 aggregate_status "idle"
 
+# Initial trigger snapshot. Bootstrap will force a lead run on first iter
+# (last_lead==0), but we baseline now so post-snapshot logic works.
+snapshot_triggers
+
 while true; do
   now=$(date +%s)
 
-  # --- Issue #1: event-driven lead trigger ---
+  # --- Pure event-driven lead trigger ---
   # Run lead if:
-  #   (a) the max interval has elapsed (LEAD_INTERVAL), OR
-  #   (b) a commit-flag is set AND the min interval (MIN_LEAD_INTERVAL) has
-  #       elapsed since the last lead run.
-  # The commit-flag is touched by the project's git post-commit hook (and
-  # by this loop after consumed). MIN_LEAD_INTERVAL prevents thrashing
-  # when many commits land in quick succession.
-  lead_pending=0
-  [ -f "$COMMIT_FLAG" ] && [ -s "$COMMIT_FLAG" ] && lead_pending=1
+  #   (a) bootstrap (never ran before), OR
+  #   (b) any trigger file's mtime > last snapshot AND ≥ MIN_LEAD_INTERVAL
+  #       since last lead (anti-thrash), OR
+  #   (c) sanity ceiling: ≥ LEAD_INTERVAL since last lead
+  # The trigger snapshot is refreshed AFTER each lead cycle so lead's own
+  # writes (e.g., to tasks.md, messages.md) don't re-trigger itself.
   time_since_lead=$(( now - last_lead ))
   should_run_lead=0
-  if (( time_since_lead >= LEAD_INTERVAL )); then
+  trigger_reason=""
+  if (( last_lead == 0 )); then
     should_run_lead=1
-  elif (( lead_pending == 1 )) && (( time_since_lead >= MIN_LEAD_INTERVAL )); then
+    trigger_reason="bootstrap"
+  elif (( time_since_lead >= LEAD_INTERVAL )); then
     should_run_lead=1
+    trigger_reason="sanity-ceiling (${time_since_lead}s ≥ ${LEAD_INTERVAL}s)"
+  elif any_trigger_changed && (( time_since_lead >= MIN_LEAD_INTERVAL )); then
+    should_run_lead=1
+    trigger_reason="event"
   fi
 
   if (( should_run_lead == 1 )); then
-    log "Running lead... (pending=$lead_pending, since=${time_since_lead}s)"
+    log "Running lead... (reason: $trigger_reason)"
     # R8: record start time, not end time
     last_lead=$now
-    : > "$COMMIT_FLAG"   # consume the flag
     aggregate_status "lead-reviewing"
     bash "$WF/lead.sh" || log "Lead failed"
+    # Snapshot AFTER lead exits so its own writes don't trigger another run
+    snapshot_triggers
     aggregate_status "auto"
   fi
 
