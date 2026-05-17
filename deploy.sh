@@ -133,6 +133,31 @@ else
 fi
 echo "✓ Updated .gitignore"
 
+# 7a. Install git post-commit hook for event-driven lead trigger (Issue #1).
+# The hook touches .kiro-workflow/.commit-flag after each commit so run.sh
+# can wake up immediately instead of waiting for the next polling tick.
+HOOK_DIR="$PROJECT/.git/hooks"
+if [ -d "$HOOK_DIR" ]; then
+  HOOK="$HOOK_DIR/post-commit"
+  HOOK_MARKER="kiro-workflow event-driven lead trigger"
+  if [ -f "$HOOK" ] && ! grep -q "$HOOK_MARKER" "$HOOK"; then
+    echo "⚠ Existing post-commit hook found at $HOOK"
+    echo "  Append this snippet manually for event-driven lead:"
+    echo "    # $HOOK_MARKER"
+    echo "    WF=\"\$(git rev-parse --show-toplevel)/.kiro-workflow\""
+    echo "    [ -d \"\$WF\" ] && date -Iseconds > \"\$WF/.commit-flag\""
+  else
+    cat > "$HOOK" <<EOF
+#!/bin/sh
+# $HOOK_MARKER
+WF="\$(git rev-parse --show-toplevel)/.kiro-workflow"
+[ -d "\$WF" ] && date -Iseconds > "\$WF/.commit-flag"
+EOF
+    chmod +x "$HOOK"
+    echo "✓ Installed git post-commit hook"
+  fi
+fi
+
 # 8. Start if requested
 if [ "$START" = true ]; then
   systemctl --user start "kiro-workflow@${PROJECT_NAME}" 2>/dev/null || bash "$WF/run.sh" &

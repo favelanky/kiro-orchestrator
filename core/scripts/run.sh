@@ -6,10 +6,39 @@ PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
 STATE_DIR="$WF/state"
 LEAD_INTERVAL="${KIRO_LEAD_INTERVAL:-180}"
+MIN_LEAD_INTERVAL="${KIRO_MIN_LEAD_INTERVAL:-60}"
+COMMIT_FLAG="$WF/.commit-flag"
 
 mkdir -p "$STATE_DIR" "$STATE_DIR/agents"
 
+# Detect inotify-tools so the loop can be event-driven (Issue #1).
+# Falls back to polling sleep if not installed.
+HAS_INOTIFY=0
+if command -v inotifywait >/dev/null 2>&1; then
+  HAS_INOTIFY=1
+fi
+
 log() { echo "[$(date -Iseconds)] $*"; }
+
+# wait_for_event: block up to <timeout> seconds, waking early on relevant
+# events (commit-flag bumped, answer.md or tasks.md modified). Falls back
+# to plain sleep if inotify-tools is missing.
+wait_for_event() {
+  local timeout="$1"
+  (( timeout < 1 )) && timeout=1
+
+  if [ "$HAS_INOTIFY" = "1" ]; then
+    # Make sure target files exist so inotifywait doesn't error
+    [ -f "$COMMIT_FLAG" ]    || : > "$COMMIT_FLAG"
+    [ -f "$WF/answer.md" ]   || echo "# Human Answers" > "$WF/answer.md"
+    [ -f "$WF/tasks.md" ]    || echo "# Tasks" > "$WF/tasks.md"
+    inotifywait -q -t "$timeout" -e modify -e close_write \
+      "$COMMIT_FLAG" "$WF/answer.md" "$WF/tasks.md" \
+      >/dev/null 2>&1 || true
+  else
+    sleep "$timeout"
+  fi
+}
 
 # Prevent duplicate instances (validate via /proc/<pid>/cmdline so we don't
 # treat a recycled PID as our own — R6/R12)
@@ -126,11 +155,29 @@ aggregate_status "idle"
 while true; do
   now=$(date +%s)
 
-  # Run lead if enough time passed
-  if (( now - last_lead >= LEAD_INTERVAL )); then
-    log "Running lead..."
+  # --- Issue #1: event-driven lead trigger ---
+  # Run lead if:
+  #   (a) the max interval has elapsed (LEAD_INTERVAL), OR
+  #   (b) a commit-flag is set AND the min interval (MIN_LEAD_INTERVAL) has
+  #       elapsed since the last lead run.
+  # The commit-flag is touched by the project's git post-commit hook (and
+  # by this loop after consumed). MIN_LEAD_INTERVAL prevents thrashing
+  # when many commits land in quick succession.
+  lead_pending=0
+  [ -f "$COMMIT_FLAG" ] && [ -s "$COMMIT_FLAG" ] && lead_pending=1
+  time_since_lead=$(( now - last_lead ))
+  should_run_lead=0
+  if (( time_since_lead >= LEAD_INTERVAL )); then
+    should_run_lead=1
+  elif (( lead_pending == 1 )) && (( time_since_lead >= MIN_LEAD_INTERVAL )); then
+    should_run_lead=1
+  fi
+
+  if (( should_run_lead == 1 )); then
+    log "Running lead... (pending=$lead_pending, since=${time_since_lead}s)"
     # R8: record start time, not end time
     last_lead=$now
+    : > "$COMMIT_FLAG"   # consume the flag
     aggregate_status "lead-reviewing"
     bash "$WF/lead.sh" || log "Lead failed"
     aggregate_status "auto"
@@ -163,9 +210,12 @@ while true; do
   total=$(grep -c "^\- \[ \]" "$WF/tasks.md" 2>/dev/null || echo 0)
   blocked=$(grep "^\- \[ \]" "$WF/tasks.md" 2>/dev/null | grep -ci "BLOCKED" || echo 0)
   if [ "$total" -eq 0 ] || [ "$total" -eq "$blocked" ]; then
-    log "Queue empty or all blocked ($blocked/$total), skipping worker"
+    log "Queue empty or all blocked ($blocked/$total), waiting for events"
     aggregate_status "idle"
-    sleep 30
+    # Wait until either an event fires or LEAD_INTERVAL is up.
+    wait_secs=$(( last_lead + LEAD_INTERVAL - $(date +%s) ))
+    (( wait_secs < 5 )) && wait_secs=5
+    wait_for_event "$wait_secs"
     continue
   fi
 
@@ -175,6 +225,6 @@ while true; do
   bash "$WF/worker.sh" || log "Worker exited"
   aggregate_status "auto"
 
-  # Brief pause before next cycle
+  # Brief pause before next cycle (events checked at loop top)
   sleep 10
 done
