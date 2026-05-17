@@ -378,11 +378,12 @@ fn draw_tasks_only(f: &mut Frame, app: &App, area: Rect) {
 fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let data = app.current();
     let block = titled_block(" Messages ");
+    let inner_height = block.inner(area).height as usize;
     let lines: Vec<Line> = data.messages.as_ref()
         .map(|m| {
             m.lines.iter()
                 .filter(|l| !l.trim().is_empty())
-                .rev().take(20).collect::<Vec<_>>().into_iter().rev()
+                .rev().take(inner_height).collect::<Vec<_>>().into_iter().rev()
                 .map(|l| style_msg_line(l))
                 .collect()
         })
