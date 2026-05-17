@@ -147,11 +147,26 @@ aggregate_status() {
   if [ "$phase" = "auto" ]; then
     primary_state=""  # reset; will fill from worker.state or fallback to idle
     if [ -f "$STATE_DIR/worker.state" ]; then
-      primary_state=$(grep -m1 "^\*\*State:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
-      task=$(grep -m1 "^\*\*Current task:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
-      prog=$(grep -m1 "^\*\*Progress:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
-      blockers=$(grep -m1 "^\*\*Blockers:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
-      last_from_state=$(grep -m1 "^\*\*Last updated:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
+      # Support both formats: "**State:** value" (markdown) and "state=value" (plain)
+      local content
+      content=$(cat "$STATE_DIR/worker.state")
+      if echo "$content" | grep -q "^\*\*State:\*\*"; then
+        primary_state=$(echo "$content" | grep -m1 "^\*\*State:\*\*" | sed 's/^\*\*[^*]*\*\* *//' || true)
+        task=$(echo "$content" | grep -m1 "^\*\*Current task:\*\*" | sed 's/^\*\*[^*]*\*\* *//' || true)
+        prog=$(echo "$content" | grep -m1 "^\*\*Progress:\*\*" | sed 's/^\*\*[^*]*\*\* *//' || true)
+        blockers=$(echo "$content" | grep -m1 "^\*\*Blockers:\*\*" | sed 's/^\*\*[^*]*\*\* *//' || true)
+        last_from_state=$(echo "$content" | grep -m1 "^\*\*Last updated:\*\*" | sed 's/^\*\*[^*]*\*\* *//' || true)
+      else
+        # key=value format: state=active, task=T95, description=..., progress=...
+        primary_state=$(echo "$content" | grep -m1 "^state=" | sed 's/^state=//' || true)
+        local t_id t_desc
+        t_id=$(echo "$content" | grep -m1 "^task=" | sed 's/^task=//' || true)
+        t_desc=$(echo "$content" | grep -m1 "^description=" | sed 's/^description=//' || true)
+        [ -n "$t_id" ] && task="$t_id${t_desc:+: $t_desc}"
+        prog=$(echo "$content" | grep -m1 "^progress=" | sed 's/^progress=//' || true)
+        blockers=$(echo "$content" | grep -m1 "^blockers=" | sed 's/^blockers=//' || true)
+        last_from_state=""
+      fi
       [ -n "${last_from_state:-}" ] && last="$last_from_state"
     fi
     [ -z "$primary_state" ] && primary_state="idle"
