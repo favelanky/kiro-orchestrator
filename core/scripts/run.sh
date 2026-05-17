@@ -3,6 +3,7 @@
 set -euo pipefail
 
 PROJECT="{{PROJECT_PATH}}"
+PROJECT_NAME="{{PROJECT_NAME}}"
 WF="$PROJECT/.kiro-workflow"
 STATE_DIR="$WF/state"
 LEAD_INTERVAL="${KIRO_LEAD_INTERVAL:-3600}"      # max time without lead (sanity ceiling)
@@ -75,6 +76,12 @@ if command -v inotifywait >/dev/null 2>&1; then
 fi
 
 log() { echo "[$(date -Iseconds)] $*"; }
+
+# Send a short Telegram notification (non-blocking, fire-and-forget)
+tg_notify() {
+  [ -n "${KIRO_TG_BOT_TOKEN:-}" ] && [ -n "${KIRO_TG_CHAT_ID:-}" ] || return 0
+  bash "$WF/tg.sh" "$1" &
+}
 
 # wait_for_event: block up to <timeout> seconds, waking early on relevant
 # events (commit-flag bumped, answer.md or tasks.md modified). Falls back
@@ -182,7 +189,6 @@ aggregate_status() {
 
 # Send Telegram summary
 send_summary() {
-  local project_name=$(basename "$PROJECT")
   local state=$(grep "^\*\*State:\*\*" "$WF/status.md" 2>/dev/null | sed 's/.*\*\* //')
   local task=$(grep "^\*\*Current task:\*\*" "$WF/status.md" 2>/dev/null | sed 's/.*\*\* //' | cut -c1-60)
   local done_count=$(grep -c "^\- \[x\]" "$WF/tasks.md" 2>/dev/null || echo 0)
@@ -190,7 +196,7 @@ send_summary() {
   local last_commit=$(git -C "$PROJECT" log --oneline -1 2>/dev/null || echo "none")
   local phase=$(grep "CURRENT\|ACTIVE" "$WF/guidelines.md" 2>/dev/null | head -1 | sed 's/^#* //' | sed 's/[←→] //')
 
-  local msg="📊 *[$project_name]* hourly summary
+  local msg="📊 *[$PROJECT_NAME]* hourly summary
 ⚡ State: $state
 📋 Task: $task
 ✅ Done: $done_count | 📥 Queue: $queue_count
@@ -249,10 +255,11 @@ while true; do
       export LEAD_TRIGGERS="sanity-ceiling (periodic recheck)"
     fi
     log "Running lead... (reason: $trigger_reason, triggers: $LEAD_TRIGGERS)"
+    tg_notify "🔍 *[$PROJECT_NAME]* lead cycle (${LEAD_TRIGGERS})"
     # R8: record start time, not end time
     last_lead=$now
     aggregate_status "lead-reviewing"
-    bash "$WF/lead.sh" || log "Lead failed"
+    bash "$WF/lead.sh" || { log "Lead failed"; tg_notify "❌ *[$PROJECT_NAME]* lead FAILED"; }
     # Snapshot AFTER lead exits so its own writes don't trigger another run
     snapshot_triggers
     aggregate_status "auto"
@@ -296,8 +303,14 @@ while true; do
 
   # Run worker
   log "Running worker..."
+  last_commit_before=$(git -C "$PROJECT" rev-parse --short HEAD 2>/dev/null || echo "")
   aggregate_status "active"
   bash "$WF/worker.sh" || log "Worker exited"
+  last_commit_after=$(git -C "$PROJECT" rev-parse --short HEAD 2>/dev/null || echo "")
+  if [ "$last_commit_before" != "$last_commit_after" ]; then
+    commit_msg=$(git -C "$PROJECT" log --oneline -1 2>/dev/null || echo "?")
+    tg_notify "✅ *[$PROJECT_NAME]* committed: $commit_msg"
+  fi
   aggregate_status "auto"
 
   # Brief pause before next cycle (events checked at loop top)

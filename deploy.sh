@@ -34,7 +34,7 @@ mkdir -p "$WF/state/agents"
 echo "✓ Created $WF/ (with state/, specs/)"
 
 # 2. Copy and template scripts
-for script in run.sh worker.sh lead.sh agent.sh notify.sh append-msg.sh; do
+for script in run.sh worker.sh lead.sh agent.sh notify.sh append-msg.sh tg.sh; do
   sed "s|{{PROJECT_PATH}}|$PROJECT|g; s|{{PROJECT_NAME}}|$PROJECT_NAME|g" \
     "$CORE/scripts/$script" > "$WF/$script"
   chmod +x "$WF/$script"
