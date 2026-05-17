@@ -28,17 +28,18 @@ echo "🦊 Deploying kiro-workflow to: $PROJECT"
 echo "   Project name: $PROJECT_NAME"
 echo ""
 
-# 1. Create .kiro-workflow directory
+# 1. Create .kiro-workflow directory and per-actor state subdirs
 mkdir -p "$WF/specs"
-echo "✓ Created $WF/"
+mkdir -p "$WF/state/agents"
+echo "✓ Created $WF/ (with state/, specs/)"
 
 # 2. Copy and template scripts
-for script in run.sh worker.sh lead.sh agent.sh notify.sh; do
+for script in run.sh worker.sh lead.sh agent.sh notify.sh append-msg.sh; do
   sed "s|{{PROJECT_PATH}}|$PROJECT|g; s|{{PROJECT_NAME}}|$PROJECT_NAME|g" \
     "$CORE/scripts/$script" > "$WF/$script"
   chmod +x "$WF/$script"
 done
-echo "✓ Installed scripts (run.sh, worker.sh, lead.sh, agent.sh, notify.sh)"
+echo "✓ Installed scripts (run.sh, worker.sh, lead.sh, agent.sh, notify.sh, append-msg.sh)"
 
 # 3. Copy template .md files (don't overwrite existing)
 for tmpl in "$CORE/templates/"*.tmpl; do

@@ -4,7 +4,10 @@ set -euo pipefail
 
 PROJECT="{{PROJECT_PATH}}"
 WF="$PROJECT/.kiro-workflow"
+STATE_DIR="$WF/state"
 LEAD_INTERVAL="${KIRO_LEAD_INTERVAL:-180}"
+
+mkdir -p "$STATE_DIR" "$STATE_DIR/agents"
 
 log() { echo "[$(date -Iseconds)] $*"; }
 
@@ -30,6 +33,66 @@ last_lead=0
 last_summary=0
 SUMMARY_INTERVAL="${KIRO_SUMMARY_INTERVAL:-3600}"
 declare -A last_agent_run
+
+# --- Issue #4 + R2: aggregate per-actor state files into status.md ---
+# Single writer for status.md = run.sh. The lead/worker/agents write to their
+# own state files in $STATE_DIR; this function regenerates status.md on every
+# phase transition.
+#
+# phase argument:
+#   "lead-reviewing" | "active" | "idle"   - explicit override (used during
+#                                            phase transitions)
+#   "auto"                                  - derive from state/worker.state
+aggregate_status() {
+  local phase="$1"
+  local primary_state="$phase"
+  local task="—" prog="—" blockers="none"
+  local last
+  last=$(date -Iseconds)
+
+  # In auto mode, use worker.state's reported fields as the headline
+  if [ "$phase" = "auto" ]; then
+    primary_state=""  # reset; will fill from worker.state or fallback to idle
+    if [ -f "$STATE_DIR/worker.state" ]; then
+      primary_state=$(grep -m1 "^\*\*State:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
+      task=$(grep -m1 "^\*\*Current task:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
+      prog=$(grep -m1 "^\*\*Progress:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
+      blockers=$(grep -m1 "^\*\*Blockers:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
+      last_from_state=$(grep -m1 "^\*\*Last updated:\*\*" "$STATE_DIR/worker.state" 2>/dev/null | sed 's/^\*\*[^*]*\*\* *//' || true)
+      [ -n "${last_from_state:-}" ] && last="$last_from_state"
+    fi
+    [ -z "$primary_state" ] && primary_state="idle"
+    [ -z "$task" ]          && task="—"
+    [ -z "$prog" ]          && prog="—"
+    [ -z "$blockers" ]      && blockers="none"
+  fi
+
+  {
+    printf '# Worker Status\n\n'
+    printf '**State:** %s\n' "$primary_state"
+    printf '**Last updated:** %s\n' "$last"
+    printf '**Current task:** %s\n' "$task"
+    printf '**Progress:** %s\n' "$prog"
+    printf '**Blockers:** %s\n' "$blockers"
+    printf '\n## Detail\n'
+
+    # Detail blocks: indent by 2 spaces so dash's strip_prefix("**State:**")
+    # doesn't shadow the headline above. Humans see the same content.
+    printf '\n### Lead\n'
+    if [ -f "$STATE_DIR/lead.state" ]; then sed 's/^/  /' "$STATE_DIR/lead.state"; else echo "  (no state)"; fi
+
+    printf '\n### Worker\n'
+    if [ -f "$STATE_DIR/worker.state" ]; then sed 's/^/  /' "$STATE_DIR/worker.state"; else echo "  (no state)"; fi
+
+    if [ -d "$STATE_DIR/agents" ]; then
+      for f in "$STATE_DIR/agents"/*.state; do
+        [ -f "$f" ] || continue
+        printf '\n### Agent: %s\n' "$(basename "$f" .state)"
+        sed 's/^/  /' "$f"
+      done
+    fi
+  } > "$WF/status.md.tmp" && mv "$WF/status.md.tmp" "$WF/status.md"
+}
 
 # Send Telegram summary
 send_summary() {
@@ -57,18 +120,20 @@ send_summary() {
   log "Summary sent"
 }
 
+# Initial status.md
+aggregate_status "idle"
+
 while true; do
   now=$(date +%s)
 
   # Run lead if enough time passed
   if (( now - last_lead >= LEAD_INTERVAL )); then
     log "Running lead..."
-    # R8: record start time, not end time, so the interval measures
-    # from-start-to-start instead of drifting if a lead cycle runs long.
+    # R8: record start time, not end time
     last_lead=$now
-    printf '# Worker Status\n\n**State:** lead-reviewing\n**Last updated:** %s\n**Current task:** —\n**Progress:** lead cycle\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
+    aggregate_status "lead-reviewing"
     bash "$WF/lead.sh" || log "Lead failed"
-    printf '# Worker Status\n\n**State:** idle\n**Last updated:** %s\n**Current task:** —\n**Progress:** lead done, checking agents/worker\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
+    aggregate_status "auto"
   fi
 
   # Send summary if enough time passed
@@ -99,15 +164,16 @@ while true; do
   blocked=$(grep "^\- \[ \]" "$WF/tasks.md" 2>/dev/null | grep -ci "BLOCKED" || echo 0)
   if [ "$total" -eq 0 ] || [ "$total" -eq "$blocked" ]; then
     log "Queue empty or all blocked ($blocked/$total), skipping worker"
-    printf '# Worker Status\n\n**State:** idle\n**Last updated:** %s\n**Current task:** none\n**Progress:** queue empty or blocked (%s/%s)\n**Blockers:** none\n' "$(date -Iseconds)" "$blocked" "$total" > "$WF/status.md"
+    aggregate_status "idle"
     sleep 30
     continue
   fi
 
   # Run worker
   log "Running worker..."
-  printf '# Worker Status\n\n**State:** active\n**Last updated:** %s\n**Current task:** (starting)\n**Progress:** worker running\n**Blockers:** none\n' "$(date -Iseconds)" > "$WF/status.md"
+  aggregate_status "active"
   bash "$WF/worker.sh" || log "Worker exited"
+  aggregate_status "auto"
 
   # Brief pause before next cycle
   sleep 10

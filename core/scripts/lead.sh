@@ -10,6 +10,18 @@ SESSION_FILE="$WF/.lead-session-id"
 SESSION_DIR="$HOME/.kiro/sessions/cli"
 LOCKFILE="$WF/.lead.lock"
 ROLE_FILE="$LEAD_HOME/role.md"
+STATE_FILE="$WF/state/lead.state"
+
+mkdir -p "$WF/state"
+
+write_lead_state() {
+  local state="$1"
+  local tmp="${STATE_FILE}.tmp"
+  {
+    printf '**State:** %s\n' "$state"
+    printf '**Last updated:** %s\n' "$(date -Iseconds)"
+  } > "$tmp" && mv "$tmp" "$STATE_FILE"
+}
 
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 log "=== Lead cycle ==="
@@ -26,7 +38,8 @@ if [ -f "$LOCKFILE" ]; then
   rm -f "$LOCKFILE"  # stale or unrelated
 fi
 echo $$ > "$LOCKFILE"
-trap 'rm -f "$LOCKFILE"' EXIT
+trap 'rm -f "$LOCKFILE"; write_lead_state "idle"' EXIT
+write_lead_state "running"
 
 # --- R5: Skip if a human kiro-cli session is attached to lead's home dir ---
 # We hold the lockfile, so any kiro-cli process whose cwd is $LEAD_HOME must be

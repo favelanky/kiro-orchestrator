@@ -24,6 +24,18 @@ AGENT_NAME=$(grep '^name' "$CONFIG" | sed 's/.*= *"//' | sed 's/".*//')
 PROMPT=$(sed -n '/^prompt *= *"""/,/^"""/p' "$CONFIG" | sed '1d;$d')
 HINTS=$(sed -n '/^hints *= *"""/,/^"""/p' "$CONFIG" | sed '1d;$d')
 
+STATE_FILE="$WF/state/agents/${AGENT_NAME}.state"
+mkdir -p "$WF/state/agents"
+
+write_agent_state() {
+  local state="$1"
+  local tmp="${STATE_FILE}.tmp"
+  {
+    printf '**State:** %s\n' "$state"
+    printf '**Last updated:** %s\n' "$(date -Iseconds)"
+  } > "$tmp" && mv "$tmp" "$STATE_FILE"
+}
+
 log() { echo "[$(date -Iseconds)] $*" | tee -a "$LOG"; }
 
 # --- R7: Per-agent lockfile, validated by /proc/<pid>/cmdline ---
@@ -38,7 +50,8 @@ if [ -f "$LOCKFILE" ]; then
   rm -f "$LOCKFILE"  # stale or unrelated
 fi
 echo $$ > "$LOCKFILE"
-trap 'rm -f "$LOCKFILE"' EXIT
+trap 'rm -f "$LOCKFILE"; write_agent_state "idle"' EXIT
+write_agent_state "running"
 
 log "=== Agent '$AGENT_NAME' start ==="
 
@@ -51,9 +64,10 @@ YOUR WORKSPACE: $AGENT_DIR/
 You can create any files inside your workspace (scripts/, data/, knowledge/, etc).
 
 RULES:
-- You CAN: read any project file, run shell commands, write inside your workspace, append to $WF/messages.md
-- You CANNOT: write outside your workspace, modify source code, git commit, modify .kiro-workflow scripts
-- If you need something built that you can't do yourself, append to messages.md: **[$AGENT_NAME TIMESTAMP]** request for lead/worker
+- You CAN: read any project file, run shell commands, write inside your workspace.
+- You CANNOT: write outside your workspace, modify source code, git commit, modify .kiro-workflow scripts, edit tasks.md.
+- DO NOT edit messages.md directly. Append via: bash $WF/append-msg.sh '**[$AGENT_NAME TIMESTAMP]** message'
+- If you need something built that you can't do yourself, append a request via append-msg.sh.
 
 CONTEXT HINTS:
 $HINTS

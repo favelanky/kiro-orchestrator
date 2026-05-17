@@ -48,11 +48,11 @@ if [ -f "$SESSION_FILE" ]; then
     "Read $WF/tasks.md NOW. Pick the next unchecked item (- [ ]) from Current or Queue (skip BLOCKED). Implement that one task, then stop.
 
 Reminder:
-- Update status.md (state=active) before starting
+- Write $WF/state/worker.state (state=active, current task, progress) before starting
 - Commit with format: T<N>: short description
 - Move task to Done in tasks.md
-- Update status.md (state=idle)
-- Append to messages.md: **[worker TIMESTAMP]** what you did
+- Update $WF/state/worker.state (state=idle) when done
+- Announce via: bash $WF/append-msg.sh '**[worker TIMESTAMP]** what you did'
 - Then STOP." 2>&1 | stdbuf -oL tee -a "$LOG" \
       || log "Worker exited (timeout or error)"
 else
@@ -71,23 +71,23 @@ RULES:
 - DO NOT rename or redefine tasks. Implement EXACTLY what is written.
 - DO NOT add new tasks to the queue (that is the lead's job).
 - NEVER modify .kiro-workflow/*.sh files.
+- DO NOT write status.md directly — write to $WF/state/worker.state instead.
+- DO NOT edit messages.md directly — append via: bash $WF/append-msg.sh '...'
 - Implement ONE task, then STOP.
 
 WORKFLOW:
 1. Pick next unchecked task from Queue → move to Current
-2. Update status.md: state=active, current task
+2. Write $WF/state/worker.state: state=active, current task
 3. Implement:
    a. Write code
    b. Run build/test — if fails, fix (2 attempts max, then mark blocked)
    c. git add + commit with format: T<N>: short description
 4. Move task to Done in tasks.md (one-line result with commit hash)
-5. Update status.md: state=idle
-6. Append to messages.md: **[worker TIMESTAMP]** what you did
+5. Write $WF/state/worker.state: state=idle
+6. Announce via: bash $WF/append-msg.sh '**[worker TIMESTAMP]** what you did'
 7. STOP.
 
-STATUS.MD FORMAT (use exactly this):
-# Worker Status
-
+STATE FILE FORMAT ($WF/state/worker.state — use exactly this):
 **State:** active (or idle/blocked)
 **Last updated:** YYYY-MM-DDTHH:MM+TZ
 **Current task:** T<N>: title
